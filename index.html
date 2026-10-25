@@ -1,0 +1,274 @@
+<!doctype html>
+<html lang="zh-Hant">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>捷運接駁班次</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&family=JetBrains+Mono:wght@500;700&display=swap">
+<style>
+/* 版面：單欄手機優先；上方查詢條、下方三張行程卡，乘車段以月台時刻表的「線色＋站碼」呈現 */
+:root {
+  --bg: #f3f5f7; --surface: #ffffff; --fg: #17202a; --muted: #5d6b78; --line: #d9e0e6; --accent: #0b5cad;
+  --R: #e3002c; --G: #008659; --O: #f5a818; --BL: #0070bd; --RA: #fd92a3; --GA: #cfdb00;
+  --sans: "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", system-ui, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #0f1419; --surface: #18212a; --fg: #e6ecf1; --muted: #93a1ae; --line: #2a3742; --accent: #6cb4ff; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #0f1419; --surface: #18212a; --fg: #e6ecf1; --muted: #93a1ae; --line: #2a3742; --accent: #6cb4ff; color-scheme: dark }
+
+body { background: var(--bg); color: var(--fg); font-family: var(--sans); font-size: 15px; line-height: 1.5; }
+.wrap { max-width: 560px; margin: 0 auto; padding-block: 20px 40px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: grid; gap: 16px; }
+header { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+h1 { font-size: 18px; margin: 0; text-wrap: balance; }
+.clock { font-family: var(--mono); font-size: 28px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.clock small { font-family: var(--sans); font-size: 13px; font-weight: 500; color: var(--muted); margin-left: 6px; }
+
+form { display: grid; grid-template-columns: minmax(0, 1fr) 64px; gap: 8px 10px; align-items: end; }
+label { display: grid; gap: 4px; font-size: 12px; color: var(--muted); letter-spacing: .04em; min-width: 0; }
+select, input { font: inherit; font-size: 16px; color: var(--fg); background: var(--surface); border: 1px solid var(--line);
+  border-radius: 8px; padding: 9px 10px; width: 100%; min-width: 0; box-sizing: border-box; height: 44px; margin: 0; }
+#swap { grid-row: span 2; align-self: center; justify-self: center; font: inherit; font-size: 20px; width: 44px; height: 44px; border-radius: 50%;
+  border: 1px solid var(--line); background: var(--surface); color: var(--fg); cursor: pointer; }
+.opts { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.when { grid-column: 1 / -1; display: grid; grid-template-columns: minmax(0, 1fr) 64px; gap: 10px; align-items: end; }
+#nowbtn { font: inherit; font-size: 16px; color: var(--fg); background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 0; width: 100%; cursor: pointer; }
+.when input, #nowbtn { height: 44px; box-sizing: border-box; margin: 0; }
+.when input { padding-block: 0; -webkit-appearance: none; appearance: none; display: flex; align-items: center; }
+#nowbtn[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); font-weight: 700; }
+
+/* 站點挑選：按欄位 → 選線（顏色）→ 選站 */
+.pick { font: inherit; font-size: 17px; font-weight: 700; color: var(--fg); background: var(--surface); text-align: left; cursor: pointer;
+  border: 1px solid var(--line); border-left: 6px solid var(--c); border-radius: 8px; padding: 9px 12px; width: 100%; min-width: 0;
+  display: flex; align-items: center; gap: 6px; }
+.pick .caret { margin-left: auto; color: var(--muted); font-size: 13px; }
+.pick[aria-expanded="true"] { border-color: var(--c); box-shadow: 0 0 0 1px var(--c); }
+#picker { grid-column: 1 / -1; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 12px; display: grid; gap: 12px; }
+#picker[hidden] { display: none; }
+.tabs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.tabs button { font: inherit; font-size: 15px; font-weight: 700; color: var(--fg); cursor: pointer; padding: 10px 4px 8px; border-radius: 8px;
+  border: 2px solid var(--line); background: var(--surface); display: grid; justify-items: center; gap: 2px; }
+.tabs button::before { content: ""; width: 100%; height: 6px; border-radius: 3px; background: var(--c); }
+.tabs button small { font-size: 11px; font-weight: 500; color: var(--muted); }
+.tabs button[aria-selected="true"] { border-color: var(--c); background: color-mix(in srgb, var(--c) 14%, var(--surface)); }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 6px; max-height: 50vh; overflow-y: auto; }
+.grid button { font: inherit; font-size: 15px; color: var(--fg); background: var(--surface); cursor: pointer; text-align: left;
+  border: 1px solid var(--line); border-left: 4px solid var(--c); border-radius: 6px; padding: 8px; display: grid; gap: 2px; min-width: 0; }
+.grid button .code { font-family: var(--mono); font-size: 11px; color: var(--muted); display: flex; align-items: center; gap: 3px; }
+.grid button.on { background: color-mix(in srgb, var(--c) 18%, var(--surface)); font-weight: 700; }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--c); display: inline-block; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+#out { display: grid; gap: 12px; }
+.trip { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 14px 14px 12px; display: grid; gap: 10px; }
+.trip.first { border-color: var(--accent); }
+.sum { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.times { font-family: var(--mono); font-size: 24px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.times span { color: var(--muted); font-weight: 500; margin: 0 4px; }
+.wait { font-size: 13px; color: var(--muted); }
+.wait b { color: var(--fg); font-family: var(--mono); font-size: 15px; }
+ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.leg { display: grid; grid-template-columns: 6px 1fr; gap: 10px; }
+.bar { border-radius: 3px; background: var(--c); }
+.leg p { margin: 0; font-size: 14px; }
+.leg .t { font-family: var(--mono); font-variant-numeric: tabular-nums; font-weight: 700; margin-right: 6px; }
+.chip { display: inline-block; font-family: var(--mono); font-size: 11px; font-weight: 700; line-height: 1; padding: 3px 5px; border-radius: 4px;
+  border: 1.5px solid var(--c); color: var(--fg); margin-right: 4px; vertical-align: 1px; }
+.toward { color: var(--muted); font-size: 13px; }
+.toward.need { color: var(--fg); font-weight: 700; }
+.xfer { font-size: 12px; color: var(--muted); padding-left: 16px; }
+.empty { color: var(--muted); text-align: center; padding: 24px 0; }
+.trip.gone { opacity: .55; }
+.pager { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.pager button { font: inherit; font-size: 15px; font-weight: 700; color: var(--fg); background: var(--surface); cursor: pointer;
+  border: 1px solid var(--line); border-radius: 8px; height: 44px; }
+.pager button:disabled { opacity: .4; cursor: default; }
+footer { font-size: 12px; color: var(--muted); display: grid; gap: 4px; }
+footer p { margin: 0; }
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>捷運接駁班次</h1>
+    <div class="clock" id="clock">--:--<small id="daylabel"></small></div>
+  </header>
+
+  <form id="f">
+    <label for="from">搭乘站<button type="button" class="pick" id="from" aria-expanded="false"></button></label>
+    <button type="button" id="swap" aria-label="起訖站對調">⇅</button>
+    <label for="to">目的地<button type="button" class="pick" id="to" aria-expanded="false"></button></label>
+    <div id="picker" hidden>
+      <div class="tabs" id="tabs" role="tablist" aria-label="路線"></div>
+      <div class="grid" id="grid"></div>
+    </div>
+    <div class="when">
+      <label for="at">預計搭乘時間（空白＝現在）<input id="at" type="time"></label>
+      <button type="button" id="nowbtn">現在</button>
+    </div>
+    <div class="opts">
+      <label for="day">時刻表
+        <select id="day">
+          <option value="auto">依今天自動</option>
+          <option value="wd">平日（週一至週五）</option>
+          <option value="sa">週六</option>
+          <option value="su">週日及國定假日</option>
+        </select>
+      </label>
+      <label for="xfer">轉乘步行（分）<input id="xfer" type="number" min="0" max="15" step="1" value="3" inputmode="numeric"></label>
+    </div>
+  </form>
+
+  <section id="out" aria-live="polite"></section>
+  <nav class="pager" aria-label="翻頁">
+    <button type="button" id="prev">◀ 前五班</button>
+    <button type="button" id="next">後五班 ▶</button>
+  </nav>
+
+  <footer>
+    <p>資料：臺北捷運各站 PDF 時刻表（115 年 8 月 30 日生效版）。時間為表定離站時間，實際可能差 1 分鐘，請提早到月台。</p>
+    <p>不含文湖線、環狀線、新北投與小碧潭支線。國定假日與連假公告請手動切換時刻表。</p>
+  </footer>
+</div>
+
+<script src="data/timetables.js" charset="utf-8"></script>
+<script type="module">
+import { plan, serviceTime, hhmm } from './router.js';
+
+const TT = window.TT;
+const $ = (id) => document.getElementById(id);
+const DAYNAME = { wd: '平日', sa: '週六', su: '週日' };
+const LINES = [['R', '紅線', '淡水信義'], ['G', '綠線', '松山新店'], ['O', '橘線', '中和新蘆'], ['BL', '藍線', '板南']];
+const lineOf = (code) => code.match(/^[A-Z]+/)[0];
+const name = (code) => TT.stations[code].name;
+const num = (code) => parseInt(code.match(/\d+/)[0], 10);
+
+// 有班次的站，依線分組；轉乘站另標其他線的色點
+const served = new Set(TT.edges.flatMap((e) => [e[0], e[1]]));
+const byLine = Object.fromEntries(LINES.map(([L]) => [L,
+  Object.keys(TT.stations).filter((c) => lineOf(c) === L && served.has(c)).sort((a, b) => num(a) - num(b))]));
+const others = (c) => Object.keys(TT.stations).filter((o) => o !== c && served.has(o) && TT.stations[o].id === TT.stations[c].id);
+const dot = (code) => `<span class="dot" style="--c:var(--${lineOf(code)})"></span>`;
+
+let target = null, tab = 'R'; // target：正在挑 from 或 to
+function paintPicker() {
+  $('picker').hidden = !target;
+  for (const k of ['from', 'to']) {
+    const c = $(k).value;
+    $(k).style.setProperty('--c', `var(--${lineOf(c)})`);
+    $(k).innerHTML = `${chip(c)}${name(c)}<span class="caret">${target === k ? '收起 ▴' : '更換 ▾'}</span>`;
+    $(k).setAttribute('aria-expanded', String(target === k));
+  }
+  if (!target) return;
+  $('tabs').innerHTML = LINES.map(([L, short, full]) =>
+    `<button type="button" role="tab" data-line="${L}" aria-selected="${L === tab}" style="--c:var(--${L})">${short}<small>${full}</small></button>`).join('');
+  $('grid').innerHTML = byLine[tab].map((c) =>
+    `<button type="button" data-code="${c}" class="${c === $(target).value ? 'on' : ''}" style="--c:var(--${tab})">
+      <span class="code">${c}${others(c).map(dot).join('')}</span>${name(c)}</button>`).join('');
+}
+for (const k of ['from', 'to']) $(k).onclick = () => {
+  target = target === k ? null : k;
+  if (target) tab = lineOf($(k).value);
+  paintPicker();
+};
+$('tabs').onclick = (e) => { const b = e.target.closest('[data-line]'); if (b) { tab = b.dataset.line; paintPicker(); } };
+$('grid').onclick = (e) => {
+  const b = e.target.closest('[data-code]');
+  if (!b) return;
+  $(target).value = b.dataset.code;
+  target = null;
+  cursor = null;
+  render();
+};
+
+const store = {
+  get() { try { return JSON.parse(localStorage.getItem('metro-transfer-v2') || '{}'); } catch { return {}; } },
+  set(v) { try { localStorage.setItem('metro-transfer-v2', JSON.stringify(v)); } catch {} },
+};
+const saved = store.get();
+$('from').value = saved.from || 'O18';
+$('to').value = saved.to || 'R04';
+$('day').value = saved.day || 'auto';
+$('xfer').value = saved.xfer ?? 3;
+
+// 測試用：?now=08:00&day=wd
+const q = new URLSearchParams(location.search);
+function current() {
+  const st = serviceTime(new Date());
+  const at = $('at').value || q.get('now');
+  if (at) {
+    const [h, m] = at.split(':').map(Number);
+    st.min = (h < 4 ? h + 24 : h) * 60 + m;
+    if (h >= 4) st.day = serviceTime(new Date(new Date().setHours(12))).day; // 凌晨選白天時間 → 指今天，不是前一個營運日
+  }
+  const day = q.get('day') || ($('day').value === 'auto' ? st.day : $('day').value);
+  return { day, min: st.min, custom: !!at };
+}
+
+const chip = (code) => `<span class="chip" style="--c:var(--${lineOf(code)})">${code}</span>`;
+
+function render() {
+  const { day, min, custom } = current();
+  paintPicker();
+  $('nowbtn').setAttribute('aria-pressed', String(!custom));
+  $('clock').firstChild.textContent = hhmm(min);
+  $('daylabel').textContent = `${custom ? '預計・' : ''}${DAYNAME[day]}時刻表`;
+  const from = $('from').value, to = $('to').value;
+  store.set({ from, to, day: $('day').value, xfer: $('xfer').value });
+  if (TT.stations[from].id === TT.stations[to].id) {
+    $('out').innerHTML = '<p class="empty">搭乘站和目的地是同一站。</p>';
+    return;
+  }
+  const opt = { transfer: Math.max(0, Number($('xfer').value) || 0), n: PAGE };
+  const start = cursor ?? min;
+  const trips = plan(TT, from, to, day, start, opt);
+  shown = { trips, from, to, day, opt, start };
+  $('prev').disabled = !earlier().length;
+  $('next').disabled = !trips.length;
+  if (!trips.length) {
+    $('out').innerHTML = '<p class="empty">今天的末班車已過，或這段需要搭文湖線／環狀線。</p>';
+    return;
+  }
+  const nextIdx = trips.findIndex((j) => j.dep >= min);
+  $('out').innerHTML = trips.map((j, i) => {
+    const legs = j.legs.map((l, k) => {
+      const next = j.legs[k + 1];
+      const xfer = next ? `<li class="xfer">${next.from === l.to ? '同站換車' : '轉乘'}・等 ${next.dep - l.arr} 分</li>` : '';
+      return `<li class="leg" style="--c:var(--${l.key})"><span class="bar"></span><div>
+        <p><span class="t">${hhmm(l.dep)}</span>${chip(l.from)}${name(l.from)} 上車 <span class="toward${l.need || l.term ? ' need' : ''}">${l.toward}</span></p>
+        <p><span class="t">${hhmm(l.arr)}</span>${chip(l.to)}${name(l.to)} 下車・${l.stops} 站</p>
+      </div></li>${xfer}`;
+    }).join('');
+    const wait = j.dep - min;
+    return `<article class="trip${i === nextIdx ? ' first' : ''}${wait < 0 ? ' gone' : ''}">
+      <div class="sum">
+        <div class="times">${hhmm(j.dep)}<span>→</span>${hhmm(j.arr)}</div>
+        <div class="wait">${wait < 0 ? (custom ? `比預計早 ${-wait} 分` : '已開出') : custom ? `等 <b>${wait}</b> 分` : wait === 0 ? '<b>即將開車</b>' : `<b>${wait}</b> 分後發車`}・車程 ${j.arr - j.dep} 分</div>
+      </div>
+      <ol>${legs}</ol>
+    </article>`;
+  }).join('');
+}
+
+// 翻頁：cursor＝目前這頁從幾點開始找；null＝跟著現在／預計時間
+const PAGE = 5;
+let cursor = null, shown = null;
+function earlier() {
+  const { trips, from, to, day, opt, start } = shown;
+  const first = trips[0]?.dep ?? start;
+  return plan(TT, from, to, day, first - 90, { ...opt, n: 60 }).filter((j) => j.dep < first).slice(-PAGE);
+}
+$('prev').onclick = () => { const e = earlier(); if (e.length) { cursor = e[0].dep; render(); } };
+$('next').onclick = () => { if (shown.trips.length) { cursor = shown.trips.at(-1).dep + 1; render(); } };
+const reset = () => { cursor = null; render(); };
+
+$('swap').onclick = () => { [$('from').value, $('to').value] = [$('to').value, $('from').value]; reset(); };
+$('nowbtn').onclick = () => { $('at').value = ''; reset(); };
+$('f').addEventListener('input', reset);
+$('f').addEventListener('submit', (e) => e.preventDefault());
+render();
+setInterval(render, 30_000);
+</script>
