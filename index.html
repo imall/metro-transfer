@@ -134,9 +134,10 @@ footer p { margin: 0; }
   </footer>
 </div>
 
-<script src="data/timetables.js" charset="utf-8"></script>
+<!-- ?v=：資料或程式更新時改號碼，避開 Cloudflare 快取 -->
+<script src="data/timetables.js?v=2" charset="utf-8"></script>
 <script type="module">
-import { plan, serviceTime, hhmm } from './router.js';
+import { plan, serviceTime, hhmm } from './router.js?v=2';
 
 const TT = window.TT;
 const $ = (id) => document.getElementById(id);
