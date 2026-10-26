@@ -45,6 +45,8 @@ select, input { font: inherit; font-size: 16px; color: var(--fg); background: va
 #nowbtn { font: inherit; font-size: 16px; color: var(--fg); background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 0; width: 100%; cursor: pointer; }
 .when input, #nowbtn { height: 44px; box-sizing: border-box; margin: 0; }
 .when input { padding-block: 0; -webkit-appearance: none; appearance: none; display: flex; align-items: center; }
+.check { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--fg); letter-spacing: 0; cursor: pointer; }
+.check input { width: 20px; height: 20px; padding: 0; margin: 0; accent-color: var(--accent); flex: none; }
 #nowbtn[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); font-weight: 700; }
 
 /* 站點挑選：按欄位 → 選線（顏色）→ 選站 */
@@ -128,6 +130,7 @@ footer p { margin: 0; }
       </label>
       <label for="xfer">轉乘步行（分）<input id="xfer" type="number" min="0" max="15" step="1" value="3" inputmode="numeric"></label>
     </div>
+    <label class="check" for="all"><input id="all" type="checkbox" checked>顯示所有班次</label>
   </form>
 
   <section id="out" aria-live="polite"></section>
@@ -144,10 +147,10 @@ footer p { margin: 0; }
 </div>
 
 <!-- ?v=：資料或程式更新時改號碼，避開 Cloudflare 快取 -->
-<script src="data/timetables.js?v=4" charset="utf-8"></script>
-<script src="data/wenhu.js?v=4" charset="utf-8"></script>
+<script src="data/timetables.js?v=6" charset="utf-8"></script>
+<script src="data/wenhu.js?v=6" charset="utf-8"></script>
 <script type="module">
-import { plan, serviceTime, hhmm, withFreq } from './router.js?v=4';
+import { plan, serviceTime, hhmm, withFreq } from './router.js?v=6';
 
 const TT = withFreq(window.TT, window.FREQ);
 const $ = (id) => document.getElementById(id);
@@ -204,6 +207,7 @@ $('from').value = saved.from || 'O18';
 $('to').value = saved.to || 'R04';
 $('day').value = saved.day || 'auto';
 $('xfer').value = saved.xfer ?? 3;
+$('all').checked = saved.all ?? true;
 
 // 測試用：?now=08:00&day=wd
 const q = new URLSearchParams(location.search);
@@ -228,14 +232,14 @@ function render() {
   $('clock').firstChild.textContent = hhmm(min);
   $('daylabel').textContent = `${custom ? '預計・' : ''}${DAYNAME[day]}時刻表`;
   const from = $('from').value, to = $('to').value;
-  store.set({ from, to, day: $('day').value, xfer: $('xfer').value });
+  store.set({ from, to, day: $('day').value, xfer: $('xfer').value, all: $('all').checked });
   if (TT.stations[from].id === TT.stations[to].id) {
     $('out').innerHTML = '<p class="empty">搭乘站和目的地是同一站。</p>';
     return;
   }
   const opt = { transfer: Math.max(0, Number($('xfer').value) || 0), n: PAGE };
   const start = cursor ?? min;
-  const trips = plan(TT, from, to, day, start, opt);
+  const trips = keep(plan(TT, from, to, day, start, opt));
   shown = { trips, from, to, day, opt, start };
   $('prev').disabled = !earlier().length;
   $('next').disabled = !trips.length;
@@ -270,10 +274,11 @@ function render() {
 // 翻頁：cursor＝目前這頁從幾點開始找；null＝跟著現在／預計時間
 const PAGE = 5;
 let cursor = null, shown = null;
+const keep = (trips) => ($('all').checked ? trips : trips.filter((j) => !j.same)); // 不勾＝隱藏早搭不會早到的班次
 function earlier() {
   const { trips, from, to, day, opt, start } = shown;
   const first = trips[0]?.dep ?? start;
-  return plan(TT, from, to, day, first - 90, { ...opt, n: 60 }).filter((j) => j.dep < first).slice(-PAGE);
+  return keep(plan(TT, from, to, day, first - 90, { ...opt, n: 60 })).filter((j) => j.dep < first).slice(-PAGE);
 }
 $('prev').onclick = () => { const e = earlier(); if (e.length) { cursor = e[0].dep; render(); } };
 $('next').onclick = () => { if (shown.trips.length) { cursor = shown.trips.at(-1).dep + 1; render(); } };
