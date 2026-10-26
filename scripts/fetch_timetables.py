@@ -107,7 +107,7 @@ def main():
             letter, target = m.group(1), m.group(1) + m.group(2) + m.group(3)
             own = next((c for c in codes if re.fullmatch(letter + r'\d+A?', c)), None)
             if own is None:
-                continue  # 文湖線、環狀線不納入
+                continue  # 環狀線不納入；文湖線改用 data/wenhu.js 依班距估算
             if target.endswith('A') or own.endswith('A'):
                 key, d = letter + 'A', 'up' if target.endswith('A') else 'down'
             else:

@@ -1,5 +1,6 @@
 // 依時刻表配對資料（window.TT）算 A→B 最近幾班可行行程。
 // TT.edges: [A, B, 線, 方向, 吻合率, 路線終點, {日別:[A發,B發,…]}, {日別:[…]}區間車在B終點]
+// TT.freq: 沒有逐班時刻表、依班距估算的路線（文湖線，見 data/wenhu.js 與 withFreq）
 
 const FILTER = 0.95; // 吻合率低於此 = 這段只有部分班次會開（分支 / 區間車）
 
@@ -10,6 +11,30 @@ export function serviceTime(date) {
   if (h < 4) d.setDate(d.getDate() - 1);
   const wd = d.getDay();
   return { day: wd === 0 ? 'su' : wd === 6 ? 'sa' : 'wd', min: (h < 4 ? h + 24 : h) * 60 + date.getMinutes() };
+}
+
+const toMin = (s) => { const [h, m] = s.split(':').map(Number); return h * 60 + m; };
+
+// 把班距估算的路線併進 TT；同名車站共用 id 才能轉乘（大安、忠孝復興、南京復興、南港展覽館）
+export function withFreq(TT, lines = []) {
+  const idOf = Object.fromEntries(Object.values(TT.stations).map((s) => [s.name, s.id]));
+  TT.freq = lines.map((L) => {
+    const seq = L.stations.map(([code, name]) => { TT.stations[code] = { name, id: idOf[name] ?? code }; return code; });
+    const off = [0]; // 從 up 起點算的累計車程
+    for (const [, , run] of L.stations.slice(0, -1)) off.push(off.at(-1) + run);
+    const hw = Object.fromEntries(Object.entries(L.headway).map(([d, list]) => [d, list.map(([t, h]) => [toMin(t), h])]));
+    return { key: L.key, seq, off, first: toMin(L.first), last: toMin(L.last), hw };
+  });
+  return TT;
+}
+
+// t 到月台、往 dir 方向：首班前等首班，之後等班距一半，末班過了就沒車
+function board(f, i, dir, day, t) {
+  const lastAt = f.last + (dir === 'up' ? f.off[i] : f.off.at(-1) - f.off[i]);
+  if (t > lastAt) return null;
+  const hw = f.hw[day];
+  const h = (hw.findLast(([s]) => s <= Math.max(t, f.first)) || hw[0])[1];
+  return { dep: Math.min(t < f.first ? f.first : t + Math.ceil(h / 2), lastAt), h };
 }
 
 const cache = new Map();
@@ -23,23 +48,55 @@ function connections(TT, day) {
     list.sort((x, y) => x.dep - y.dep);
     const keysAt = {};
     for (const e of TT.edges) for (const c of [e[0], e[1]]) (keysAt[c] ||= new Set()).add(e[2]);
+    const freqAt = {};
+    for (const f of TT.freq || []) f.seq.forEach((c, i) => { (keysAt[c] ||= new Set()).add(f.key); freqAt[`${c}|${f.key}`] = [f, i]; });
     // 同一實體車站（同 id）的所有月台節點，例：東門 R07|R、O06|O
     const nodesOf = {};
     for (const [code, s] of Object.entries(TT.stations))
       for (const k of keysAt[code] || []) (nodesOf[s.id] ||= []).push(`${code}|${k}`);
-    cache.set(day, { list, nodesOf });
+    cache.set(day, { list, nodesOf, freqAt });
   }
   return cache.get(day);
 }
 
 // 單次最早抵達；回傳 { dep, arr, conns:[…] } 或 null
 function earliest(TT, from, to, day, t0, transfer) {
-  const { list, nodesOf } = connections(TT, day);
+  const { list, nodesOf, freqAt } = connections(TT, day);
   const sid = (c) => TT.stations[c].id;
   const best = new Map(), via = new Map();
-  for (const n of nodesOf[sid(from)] || []) best.set(n, t0);
   const goal = new Set(nodesOf[sid(to)] || []);
   let end = null;
+  const reach = (n, t, v) => {
+    best.set(n, t);
+    via.set(n, v);
+    if (goal.has(n) && (!end || t < best.get(end))) end = n;
+  };
+  const walk = (code, nb, t) => {
+    for (const n of nodesOf[sid(code)])
+      if (n !== nb && t + transfer < (best.get(n) ?? Infinity)) {
+        reach(n, t + transfer, { walk: nb });
+        ride(n, t + transfer);
+      }
+  };
+  // 班距估算路線不在 list 裡：一到月台就直接推算同線各站的抵達時間
+  const ride = (n, t) => {
+    if (!freqAt[n]) return;
+    const [f, i] = freqAt[n];
+    for (const [dir, step] of [['up', 1], ['down', -1]]) {
+      const b = board(f, i, dir, day, t);
+      if (!b) continue;
+      for (let j = i + step; j >= 0 && j < f.seq.length; j += step) {
+        const code = f.seq[j], nb = `${code}|${f.key}`, arr = b.dep + Math.abs(f.off[j] - f.off[i]);
+        if (arr >= (best.get(nb) ?? Infinity)) continue;
+        reach(nb, arr, { freq: true, a: f.seq[i], b: code, key: f.key, dir, dep: b.dep, arr, h: b.h, stops: Math.abs(j - i),
+          end: f.seq[step > 0 ? f.seq.length - 1 : 0] });
+        walk(code, nb, arr);
+      }
+    }
+  };
+  const start = nodesOf[sid(from)] || [];
+  for (const n of start) best.set(n, t0);
+  for (const n of start) ride(n, t0);
   for (const c of list) {
     if (c.dep < t0) continue;
     if (end && c.dep >= best.get(end)) break;
@@ -47,14 +104,8 @@ function earliest(TT, from, to, day, t0, transfer) {
     if (!(best.get(na) <= c.dep) || c.arr >= (best.get(nb) ?? Infinity)) continue;
     const prev = via.get(na);
     if (prev?.term && prev.arr === c.dep) continue; // 區間車到終點就不再往前開
-    best.set(nb, c.arr);
-    via.set(nb, c);
-    if (goal.has(nb) && (!end || c.arr < best.get(end))) end = nb;
-    for (const n of nodesOf[sid(c.b)])
-      if (n !== nb && c.arr + transfer < (best.get(n) ?? Infinity)) {
-        best.set(n, c.arr + transfer);
-        via.set(n, { walk: nb });
-      }
+    reach(nb, c.arr, c);
+    walk(c.b, nb, c.arr);
   }
   if (!end) return null;
   const conns = [];
@@ -70,6 +121,10 @@ function earliest(TT, from, to, day, t0, transfer) {
 function legs(TT, conns) {
   const out = [];
   for (const c of conns) {
+    if (c.freq) {
+      out.push({ from: c.a, to: c.b, key: c.key, dir: c.dir, dep: c.dep, arr: c.arr, stops: c.stops, term: false, need: null, est: c.h, end: c.end });
+      continue;
+    }
     const e = TT.edges[c.e], last = out.at(-1);
     if (last && last.key === c.key && last.dir === e[3] && last.arr === c.dep && !last.term) {
       Object.assign(last, { to: c.b, arr: c.arr, stops: last.stops + 1, term: c.term });
@@ -80,7 +135,7 @@ function legs(TT, conns) {
   for (const l of out) {
     if (l.short && l.to === l.needAt) l.need = null; // 剛好在區間車終點下車：哪種車都行
     const name = (c) => TT.stations[c].name;
-    l.toward = l.term ? `往${name(l.to)}（區間車）` : l.need ? `往${name(l.need)}` : TT.labels[`${l.from}|${l.key}|${l.dir}`] || '';
+    l.toward = l.est ? `往${name(l.end)}・約 ${l.est} 分一班` : l.term ? `往${name(l.to)}（區間車）` : l.need ? `往${name(l.need)}` : TT.labels[`${l.from}|${l.key}|${l.dir}`] || '';
   }
   return out;
 }
@@ -95,7 +150,8 @@ export function plan(TT, from, to, day, now, { transfer = 3, n = 3 } = {}) {
     if (res.length && res.at(-1).arr === j.arr) res[res.length - 1] = j;
     else if (res.length === n) break;
     else res.push(j);
-    t = j.dep + 1;
+    const c0 = j.conns[0]; // 班距估算的第一段：下一個選項是晚一個班距的車
+    t = c0.freq ? c0.dep + Math.max(1, Math.floor(c0.h / 2)) : j.dep + 1;
   }
   return res.map((j) => ({ dep: j.dep, arr: j.arr, legs: legs(TT, j.conns) }));
 }
