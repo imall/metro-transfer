@@ -1,6 +1,6 @@
 // 依時刻表配對資料（window.TT）算 A→B 最近幾班可行行程。
 // TT.edges: [A, B, 線, 方向, 吻合率, 路線終點, {日別:[A發,B發,…]}, {日別:[…]}區間車在B終點]
-// TT.freq: 沒有逐班時刻表、依班距估算的路線（文湖線，見 data/wenhu.js 與 withFreq）
+// TT.freq: 沒有逐班時刻表、依班距估算的路線（文湖線、環狀線，見 data/freq.js 與 withFreq）
 
 const FILTER = 0.95; // 吻合率低於此 = 這段只有部分班次會開（分支 / 區間車）
 

@@ -5,7 +5,7 @@ import vm from 'node:vm';
 import { plan, hhmm, serviceTime, withFreq } from '../router.js';
 
 const ctx = { window: {} };
-for (const f of ['timetables.js', 'wenhu.js']) vm.runInNewContext(readFileSync(new URL(`../data/${f}`, import.meta.url), 'utf8'), ctx);
+for (const f of ['timetables.js', 'freq.js']) vm.runInNewContext(readFileSync(new URL(`../data/${f}`, import.meta.url), 'utf8'), ctx);
 const TT = withFreq(ctx.window.TT, ctx.window.FREQ);
 const show = (r) => r.map((j) => `${hhmm(j.dep)}→${hhmm(j.arr)} ` + j.legs.map((l) => `[${l.from}→${l.to} ${l.toward} ${hhmm(l.dep)}-${hhmm(l.arr)}]`).join(' ')).join('\n');
 
@@ -63,6 +63,15 @@ assert.ok(r.every((j) => ['BR09', 'BR10'].includes(j.legs[0].to) && j.legs[1].de
 r = plan(TT, 'O18', 'BR19', 'wd', 17 * 60);
 console.log(show(r));
 assert.ok(r.length > 0 && r.every((j) => j.legs.at(-1).key === 'BR' && j.legs.at(-1).to === 'BR19'));
+
+// 環狀線（班距估算）：台北車站 → 中和，在板橋轉環狀線往大坪林
+r = plan(TT, 'R10', 'Y12', 'wd', 8 * 60);
+console.log(show(r));
+assert.ok(r.length === 3 && r.every((j) => j.legs.at(-1).key === 'Y' && j.legs.at(-1).from === 'Y16' && /大坪林.*5 分一班/.test(j.legs.at(-1).toward)));
+assert.ok(r.every((j) => j.legs.at(-1).dep >= j.legs.at(-2).arr + 3 + 3), '轉乘 3 分 + 等班距一半');
+
+// 環狀線各轉乘站都接得上
+for (const [y, other] of [['Y07', 'G04'], ['Y11', 'O02'], ['Y16', 'BL07'], ['Y18', 'O17']]) assert.equal(TT.stations[y].id, TT.stations[other].id, y);
 
 assert.deepEqual(serviceTime(new Date(2026, 9, 26, 0, 30)), { day: 'su', min: 24 * 60 + 30 }); // 週一凌晨 → 週日營運日
 console.log('OK');
