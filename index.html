@@ -40,7 +40,10 @@ select, input { font: inherit; font-size: 16px; color: var(--fg); background: va
   border-radius: 8px; padding: 9px 10px; width: 100%; min-width: 0; box-sizing: border-box; height: 44px; margin: 0; }
 #swap { grid-row: span 2; align-self: center; justify-self: center; font: inherit; font-size: 20px; width: 44px; height: 44px; border-radius: 50%;
   border: 1px solid var(--line); background: var(--surface); color: var(--fg); cursor: pointer; }
-.opts { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.opts { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; align-items: start; }
+.xferbox { display: grid; gap: 2px; min-width: 0; }
+#official { justify-self: end; font: inherit; font-size: 12px; color: var(--accent); background: none; border: 0; padding: 4px 0; cursor: pointer; }
+#official:disabled { color: var(--muted); opacity: .5; cursor: default; }
 .when { grid-column: 1 / -1; display: grid; grid-template-columns: minmax(0, 1fr) 64px; gap: 10px; align-items: end; }
 #nowbtn { font: inherit; font-size: 16px; color: var(--fg); background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 0; width: 100%; cursor: pointer; }
 .when input, #nowbtn { height: 44px; box-sizing: border-box; margin: 0; }
@@ -128,7 +131,10 @@ footer p { margin: 0; }
           <option value="su">週日及國定假日</option>
         </select>
       </label>
-      <label for="xfer">轉乘步行（分）<input id="xfer" type="number" min="0" max="15" step="1" value="3" inputmode="numeric"></label>
+      <div class="xferbox">
+        <label for="xfer">轉乘步行（分）<input id="xfer" type="number" min="0" max="15" step="1" placeholder="官方時間" inputmode="numeric"></label>
+        <button type="button" id="official">還原官方時間</button>
+      </div>
     </div>
     <label class="check" for="all"><input id="all" type="checkbox">顯示所有班次</label>
   </form>
@@ -142,17 +148,23 @@ footer p { margin: 0; }
   <footer>
     <p>資料：臺北捷運各站 PDF 時刻表（115 年 8 月 30 日生效版）。時間為表定離站時間，實際可能差 1 分鐘，請提早到月台。</p>
     <p>文湖線、環狀線沒有逐班時刻表，依公告班距估算（等車取班距一半），標「約」的時間僅供參考。</p>
+    <p>轉乘步行留空時，用臺北捷運公開的各站轉乘步行時間（114 年 5 月 29 日版）；大坪林沒有資料，以 3 分計。</p>
     <p>不含新北投與小碧潭支線。國定假日與連假公告請手動切換時刻表。</p>
   </footer>
 </div>
 
 <!-- ?v=：資料或程式更新時改號碼，避開 Cloudflare 快取 -->
-<script src="data/timetables.js?v=9" charset="utf-8"></script>
-<script src="data/freq.js?v=9" charset="utf-8"></script>
+<script src="data/timetables.js?v=10" charset="utf-8"></script>
+<script src="data/freq.js?v=10" charset="utf-8"></script>
+<script src="data/transfer.js?v=10" charset="utf-8"></script>
 <script type="module">
-import { plan, serviceTime, hhmm, withFreq } from './router.js?v=9';
+import { plan, serviceTime, hhmm, withFreq } from './router.js?v=10';
 
 const TT = withFreq(window.TT, window.FREQ);
+// 官方各站轉乘步行時間（data/transfer.js），沒資料的轉乘站用 3 分
+const WALK = {};
+for (const s of Object.values(TT.stations)) if (s.name in window.TRANSFER) WALK[s.id] = window.TRANSFER[s.name];
+const officialWalk = (id) => WALK[id] ?? 3;
 const $ = (id) => document.getElementById(id);
 const DAYNAME = { wd: '平日', sa: '週六', su: '週日' };
 const LINES = [['R', '紅線', '淡水信義'], ['G', '綠線', '松山新店'], ['O', '橘線', '中和新蘆'], ['BL', '藍線', '板南'], ['BR', '棕線', '文湖'], ['Y', '黃線', '環狀']];
@@ -193,6 +205,7 @@ $('grid').onclick = (e) => {
   const b = e.target.closest('[data-code]');
   if (!b) return;
   $(target).value = b.dataset.code;
+  $('xfer').value = ''; // 換站就回到官方轉乘時間
   target = null;
   cursor = null;
   render();
@@ -206,7 +219,7 @@ const saved = store.get();
 $('from').value = saved.from || 'O18';
 $('to').value = saved.to || 'R04';
 $('day').value = saved.day || 'auto';
-$('xfer').value = saved.xfer ?? 3;
+$('xfer').value = saved.xfer ?? ''; // 空白＝官方各站時間
 $('all').checked = saved.all ?? false;
 
 // 測試用：?now=08:00&day=wd
@@ -237,7 +250,9 @@ function render() {
     $('out').innerHTML = '<p class="empty">搭乘站和目的地是同一站。</p>';
     return;
   }
-  const opt = { transfer: Math.max(0, Number($('xfer').value) || 0), n: PAGE };
+  const x = $('xfer').value;
+  $('official').disabled = x === '';
+  const opt = { transfer: x === '' ? officialWalk : Math.max(0, Number(x) || 0), n: PAGE };
   const start = cursor ?? min;
   const trips = keep(plan(TT, from, to, day, start, opt));
   shown = { trips, from, to, day, opt, start };
@@ -251,7 +266,9 @@ function render() {
   $('out').innerHTML = trips.map((j, i) => {
     const legs = j.legs.map((l, k) => {
       const next = j.legs[k + 1];
-      const xfer = next ? `<li class="xfer">${next.from === l.to ? '同站換車' : '轉乘'}・等${next.est ? '約' : ''} ${next.dep - l.arr} 分</li>` : '';
+      const gap = next ? next.dep - l.arr : 0, about = next?.est ? '約' : '';
+      const xfer = !next ? '' : next.walk == null ? `<li class="xfer">同站換車・等${about} ${gap} 分</li>`
+        : `<li class="xfer">轉乘・步行 ${next.walk} 分・等${about} ${gap - next.walk} 分</li>`;
       const t = (m) => `<span class="t">${l.est ? '約' : ''}${hhmm(m)}</span>`; // 班距估算
       return `<li class="leg" style="--c:var(--${l.key})"><span class="bar"></span><div>
         <p>${t(l.dep)}${chip(l.from)}${name(l.from)} 上車 <span class="toward${l.need || l.term ? ' need' : ''}">${l.toward}</span></p>
@@ -284,7 +301,8 @@ $('prev').onclick = () => { const e = earlier(); if (e.length) { cursor = e[0].d
 $('next').onclick = () => { if (shown.trips.length) { cursor = shown.trips.at(-1).dep + 1; render(); } };
 const reset = () => { cursor = null; render(); };
 
-$('swap').onclick = () => { [$('from').value, $('to').value] = [$('to').value, $('from').value]; reset(); };
+$('swap').onclick = () => { [$('from').value, $('to').value] = [$('to').value, $('from').value]; $('xfer').value = ''; reset(); };
+$('official').onclick = () => { $('xfer').value = ''; reset(); };
 $('nowbtn').onclick = () => { $('at').value = ''; $('day').value = 'auto'; reset(); }; // 時刻表也回到依今天自動
 $('f').addEventListener('input', reset);
 $('f').addEventListener('submit', (e) => e.preventDefault());

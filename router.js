@@ -19,7 +19,10 @@ const toMin = (s) => { const [h, m] = s.split(':').map(Number); return h * 60 + 
 export function withFreq(TT, lines = []) {
   const idOf = Object.fromEntries(Object.values(TT.stations).map((s) => [s.name, s.id]));
   TT.freq = lines.map((L) => {
-    const seq = L.stations.map(([code, name]) => { TT.stations[code] = { name, id: idOf[name] ?? code }; return code; });
+    const seq = L.stations.map(([code, name]) => {
+      TT.stations[code] = { name, id: TT.stations[L.same?.[code]]?.id ?? idOf[name] ?? code };
+      return code;
+    });
     const off = [0]; // 從 up 起點算的累計車程
     for (const [, , run] of L.stations.slice(0, -1)) off.push(off.at(-1) + run);
     const hw = Object.fromEntries(Object.entries(L.headway).map(([d, list]) => [d, list.map(([t, h]) => [toMin(t), h])]));
@@ -59,6 +62,9 @@ function connections(TT, day) {
   return cache.get(day);
 }
 
+// 轉乘步行分鐘：transfer 是固定分鐘，或「車站 id → 分鐘」的函式（各站不同）
+const walkAt = (transfer, id) => (typeof transfer === 'function' ? transfer(id) : transfer);
+
 // 單次最早抵達；回傳 { dep, arr, conns:[…] } 或 null
 function earliest(TT, from, to, day, t0, transfer) {
   const { list, nodesOf, freqAt } = connections(TT, day);
@@ -72,10 +78,11 @@ function earliest(TT, from, to, day, t0, transfer) {
     if (goal.has(n) && (!end || t < best.get(end))) end = n;
   };
   const walk = (code, nb, t) => {
+    const w = t + walkAt(transfer, sid(code));
     for (const n of nodesOf[sid(code)])
-      if (n !== nb && t + transfer < (best.get(n) ?? Infinity)) {
-        reach(n, t + transfer, { walk: nb });
-        ride(n, t + transfer);
+      if (n !== nb && w < (best.get(n) ?? Infinity)) {
+        reach(n, w, { walk: nb });
+        ride(n, w);
       }
   };
   // 班距估算路線不在 list 裡：一到月台就直接推算同線各站的抵達時間
@@ -176,7 +183,14 @@ export function plan(TT, from, to, day, now, { transfer = 3, n = 3 } = {}) {
       if (alt) out.push({ ...alt, same: late.dep });
     }
   }
-  return out.map((j) => ({ dep: j.dep, arr: j.arr, same: j.same ?? null, legs: legs(TT, j.conns) }));
+  return out.map((j) => {
+    const ls = legs(TT, j.conns);
+    ls.forEach((l, k) => { // 換月台（不同站碼或不同路線）才要走路
+      const p = ls[k - 1];
+      if (p && (l.from !== p.to || l.key !== p.key)) l.walk = walkAt(transfer, TT.stations[l.from].id);
+    });
+    return { dep: j.dep, arr: j.arr, same: j.same ?? null, legs: ls };
+  });
 }
 
 export const hhmm = (m) => `${String(Math.floor(m / 60) % 24).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
