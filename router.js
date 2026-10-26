@@ -140,20 +140,43 @@ function legs(TT, conns) {
   return out;
 }
 
-// 最近 n 個行程（抵達時間不同者；同抵達取最晚出發）
+// 同時到的較早班次 → 搭較早那班到 late 的第一個轉乘站，在那裡多等、接同一班車；寫不成這樣（例：繞去別站轉車）回傳 null
+function waitLonger(TT, early, late) {
+  const cont = (x, y) => !x.freq && !y.freq && x.key === y.key && TT.edges[x.e][3] === TT.edges[y.e][3] && x.arr === y.dep && !x.term;
+  let m = 0;
+  while (late.conns[m + 1] && cont(late.conns[m], late.conns[m + 1])) m++;
+  const at = late.conns[m].b, rest = late.conns.slice(m + 1);
+  const e0 = early.conns[0], l0 = late.conns[0];
+  if (!rest.length || e0.freq || l0.freq || e0.a !== l0.a || e0.key !== l0.key || TT.edges[e0.e][3] !== TT.edges[l0.e][3]) return null;
+  for (let p = 0; p < early.conns.length; p++) {
+    if (p && !cont(early.conns[p - 1], early.conns[p])) return null;
+    if (early.conns[p].b === at) return { dep: early.dep, arr: late.arr, conns: [...early.conns.slice(0, p + 1), ...rest] };
+  }
+  return null;
+}
+
+// 最近 n 種抵達時間的行程；較早出發但和較晚那班同時到的也列出，same＝較晚那班的出發時間
 export function plan(TT, from, to, day, now, { transfer = 3, n = 3 } = {}) {
   if (TT.stations[from].id === TT.stations[to].id) return [];
   const res = [];
-  for (let t = now, guard = 0; guard < 200; guard++) {
+  for (let t = now, guard = 0, arrs = 0; guard < 200; guard++) {
     const j = earliest(TT, from, to, day, t, transfer);
     if (!j) break;
-    if (res.length && res.at(-1).arr === j.arr) res[res.length - 1] = j;
-    else if (res.length === n) break;
-    else res.push(j);
+    if (res.at(-1)?.arr !== j.arr && arrs++ === n) break;
+    res.push(j);
     const c0 = j.conns[0]; // 班距估算的第一段：下一個選項是晚一個班距的車
     t = c0.freq ? c0.dep + Math.max(1, Math.floor(c0.h / 2)) : j.dep + 1;
   }
-  return res.map((j) => ({ dep: j.dep, arr: j.arr, legs: legs(TT, j.conns) }));
+  const out = [];
+  for (const j of res) {
+    const late = res.findLast((k) => k.arr === j.arr);
+    if (late === j) out.push(j);
+    else {
+      const alt = waitLonger(TT, j, late);
+      if (alt) out.push({ ...alt, same: late.dep });
+    }
+  }
+  return out.map((j) => ({ dep: j.dep, arr: j.arr, same: j.same ?? null, legs: legs(TT, j.conns) }));
 }
 
 export const hhmm = (m) => `${String(Math.floor(m / 60) % 24).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;

@@ -89,6 +89,8 @@ ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
 .xfer { font-size: 12px; color: var(--muted); padding-left: 16px; }
 .empty { color: var(--muted); text-align: center; padding: 24px 0; }
 .trip.gone { opacity: .55; }
+.trip.same { border-style: dashed; }
+.trip.same .times { color: var(--muted); }
 .pager { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .pager button { font: inherit; font-size: 15px; font-weight: 700; color: var(--fg); background: var(--surface); cursor: pointer;
   border: 1px solid var(--line); border-radius: 8px; height: 44px; }
@@ -142,10 +144,10 @@ footer p { margin: 0; }
 </div>
 
 <!-- ?v=：資料或程式更新時改號碼，避開 Cloudflare 快取 -->
-<script src="data/timetables.js?v=3" charset="utf-8"></script>
-<script src="data/wenhu.js?v=3" charset="utf-8"></script>
+<script src="data/timetables.js?v=4" charset="utf-8"></script>
+<script src="data/wenhu.js?v=4" charset="utf-8"></script>
 <script type="module">
-import { plan, serviceTime, hhmm, withFreq } from './router.js?v=3';
+import { plan, serviceTime, hhmm, withFreq } from './router.js?v=4';
 
 const TT = withFreq(window.TT, window.FREQ);
 const $ = (id) => document.getElementById(id);
@@ -241,7 +243,7 @@ function render() {
     $('out').innerHTML = '<p class="empty">今天的末班車已過，或這段需要搭環狀線。</p>';
     return;
   }
-  const nextIdx = trips.findIndex((j) => j.dep >= min);
+  const nextIdx = trips.findIndex((j) => j.dep >= min && !j.same);
   $('out').innerHTML = trips.map((j, i) => {
     const legs = j.legs.map((l, k) => {
       const next = j.legs[k + 1];
@@ -253,11 +255,13 @@ function render() {
       </div></li>${xfer}`;
     }).join('');
     const wait = j.dep - min, est = j.legs.some((l) => l.est), approx = j.legs[0].est ? '約 ' : '';
-    return `<article class="trip${i === nextIdx ? ' first' : ''}${wait < 0 ? ' gone' : ''}">
+    const same = j.same ? `<p class="wait">和 <b>${hhmm(j.same)}</b> 出發那班同時到，早搭不會早到</p>` : '';
+    return `<article class="trip${i === nextIdx ? ' first' : ''}${wait < 0 ? ' gone' : ''}${j.same ? ' same' : ''}">
       <div class="sum">
         <div class="times">${hhmm(j.dep)}<span>→</span>${hhmm(j.arr)}</div>
         <div class="wait">${wait < 0 ? (custom ? `比預計早 ${-wait} 分` : '已開出') : custom ? `等${approx}<b>${wait}</b> 分` : wait === 0 ? '<b>即將開車</b>' : `${approx}<b>${wait}</b> 分後發車`}・車程 ${j.arr - j.dep} 分${est ? '・含估計' : ''}</div>
       </div>
+      ${same}
       <ol>${legs}</ol>
     </article>`;
   }).join('');

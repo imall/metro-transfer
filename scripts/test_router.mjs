@@ -10,13 +10,22 @@ const TT = withFreq(ctx.window.TT, ctx.window.FREQ);
 const show = (r) => r.map((j) => `${hhmm(j.dep)}→${hhmm(j.arr)} ` + j.legs.map((l) => `[${l.from}→${l.to} ${l.toward} ${hhmm(l.dep)}-${hhmm(l.arr)}]`).join(' ')).join('\n');
 
 // 信義安和 → 新莊：紅線往淡水方向，東門轉橘線，搭往迴龍的車
-let r = plan(TT, 'R04', 'O18', 'wd', 8 * 60);
+let r = plan(TT, 'R04', 'O18', 'wd', 8 * 60).filter((j) => !j.same);
 console.log(show(r));
 assert.equal(r.length, 3);
 assert.ok(r[0].dep >= 8 * 60 && r[0].dep < r[1].dep && r[1].arr < r[2].arr);
 assert.deepEqual(r[0].legs.map((l) => [l.from, l.key, l.to]), [['R04', 'R', 'R07'], ['O06', 'O', 'O18']]);
 assert.match(r[0].legs[1].toward, /迴龍/);
 assert.ok(r[0].legs[1].dep >= r[0].legs[0].arr + 3, '轉乘至少 3 分');
+
+// 較早出發但同時到的也列出：轉乘 1 分時 18:11 和 18:14 都接 18:21 往迴龍
+r = plan(TT, 'R04', 'O18', 'wd', 18 * 60 + 1, { transfer: 1 });
+console.log(show(r));
+const early = r.find((j) => j.dep === 18 * 60 + 11);
+assert.ok(early && early.same === 18 * 60 + 14 && early.arr === r.find((j) => j.dep === early.same).arr);
+assert.equal(new Set(r.map((j) => j.arr)).size, 3);
+assert.ok(r.every((j, i) => !j.same || r[i + 1]?.arr === j.arr), '同時到的較早班次後面緊接較晚那班');
+assert.deepEqual(early.legs.map((l) => [l.from, l.to, hhmm(l.dep)]), [['R04', 'R07', '18:11'], ['O06', 'O18', '18:21']], '在東門多等，不繞大橋頭');
 
 // 東門 → 蘆洲：要搭往蘆洲的車
 r = plan(TT, 'O06', 'O54', 'wd', 17 * 60);
