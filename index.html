@@ -147,10 +147,10 @@ footer p { margin: 0; }
 </div>
 
 <!-- ?v=：資料或程式更新時改號碼，避開 Cloudflare 快取 -->
-<script src="data/timetables.js?v=8" charset="utf-8"></script>
-<script src="data/freq.js?v=8" charset="utf-8"></script>
+<script src="data/timetables.js?v=9" charset="utf-8"></script>
+<script src="data/freq.js?v=9" charset="utf-8"></script>
 <script type="module">
-import { plan, serviceTime, hhmm, withFreq } from './router.js?v=8';
+import { plan, serviceTime, hhmm, withFreq } from './router.js?v=9';
 
 const TT = withFreq(window.TT, window.FREQ);
 const $ = (id) => document.getElementById(id);
@@ -285,7 +285,7 @@ $('next').onclick = () => { if (shown.trips.length) { cursor = shown.trips.at(-1
 const reset = () => { cursor = null; render(); };
 
 $('swap').onclick = () => { [$('from').value, $('to').value] = [$('to').value, $('from').value]; reset(); };
-$('nowbtn').onclick = () => { $('at').value = ''; reset(); };
+$('nowbtn').onclick = () => { $('at').value = ''; $('day').value = 'auto'; reset(); }; // 時刻表也回到依今天自動
 $('f').addEventListener('input', reset);
 $('f').addEventListener('submit', (e) => e.preventDefault());
 render();
