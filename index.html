@@ -130,7 +130,7 @@ footer p { margin: 0; }
       </label>
       <label for="xfer">轉乘步行（分）<input id="xfer" type="number" min="0" max="15" step="1" value="3" inputmode="numeric"></label>
     </div>
-    <label class="check" for="all"><input id="all" type="checkbox" checked>顯示所有班次</label>
+    <label class="check" for="all"><input id="all" type="checkbox">顯示所有班次</label>
   </form>
 
   <section id="out" aria-live="polite"></section>
@@ -147,10 +147,10 @@ footer p { margin: 0; }
 </div>
 
 <!-- ?v=：資料或程式更新時改號碼，避開 Cloudflare 快取 -->
-<script src="data/timetables.js?v=6" charset="utf-8"></script>
-<script src="data/wenhu.js?v=6" charset="utf-8"></script>
+<script src="data/timetables.js?v=7" charset="utf-8"></script>
+<script src="data/wenhu.js?v=7" charset="utf-8"></script>
 <script type="module">
-import { plan, serviceTime, hhmm, withFreq } from './router.js?v=6';
+import { plan, serviceTime, hhmm, withFreq } from './router.js?v=7';
 
 const TT = withFreq(window.TT, window.FREQ);
 const $ = (id) => document.getElementById(id);
@@ -207,7 +207,7 @@ $('from').value = saved.from || 'O18';
 $('to').value = saved.to || 'R04';
 $('day').value = saved.day || 'auto';
 $('xfer').value = saved.xfer ?? 3;
-$('all').checked = saved.all ?? true;
+$('all').checked = saved.all ?? false;
 
 // 測試用：?now=08:00&day=wd
 const q = new URLSearchParams(location.search);
