@@ -105,12 +105,17 @@ console.log(show(r));
 assert.ok(r.every((j) => j.legs.at(-1).walk === 11 && j.legs.at(-1).dep >= j.legs.at(-2).arr + 11 + 3), '板橋走 11 分');
 assert.equal(official(TT.stations.Y07.id), 3);
 
-// 每多轉一次要快 5 分以上才推薦：小南門 → 橋和，最快是古亭、景安轉 2 次 11:10 到，只比大坪林轉 1 次早 3 分
-r = plan(TT, 'G11', 'Y13', 'su', 10 * 60 + 40, { transfer: official, penalty: null });
-assert.deepEqual([r[0].arr, r[0].legs.length], [11 * 60 + 10, 3]);
-r = plan(TT, 'G11', 'Y13', 'su', 10 * 60 + 40, { transfer: official });
+// 每多轉一次要快 5 分以上才推薦：小南門 → 新莊，最快是中正紀念堂、民權西路轉 2 次 09:33 到，只比松江南京轉 1 次早 4 分
+r = plan(TT, 'G11', 'O18', 'wd', 9 * 60, { transfer: official, penalty: null });
+assert.deepEqual([r[0].arr, r[0].legs.length], [9 * 60 + 33, 3]);
+r = plan(TT, 'G11', 'O18', 'wd', 9 * 60, { transfer: official });
 console.log(show(r));
-assert.deepEqual(r[0].legs.map((l) => [l.from, l.to]), [['G11', 'G04'], ['Y07', 'Y13']]);
+assert.deepEqual(r[0].legs.map((l) => [l.from, l.to]), [['G11', 'G15'], ['O08', 'O18']]);
+
+// 同月台換車不算轉乘次數：小南門 → 橋和，古亭同月台、景安轉環狀線 11:10 到，比大坪林轉 1 次早 3 分，還是選它
+r = plan(TT, 'G11', 'Y13', 'su', 10 * 60 + 40, { transfer: official });
+assert.deepEqual([r[0].arr, r[0].legs.map((l) => l.from).join()], [11 * 60 + 10, 'G11,O05,Y11']);
+assert.ok(r[0].legs[1].cross);
 
 assert.deepEqual(serviceTime(new Date(2026, 9, 26, 0, 30)), { day: 'su', min: 24 * 60 + 30 }); // 週一凌晨 → 週日營運日
 console.log('OK');

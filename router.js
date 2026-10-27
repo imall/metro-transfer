@@ -163,7 +163,7 @@ function earliest(TT, from, to, day, t0, transfer) {
       prev = undefined;
     }
     const f = fast.size ? fast.get(c.fk) : undefined;
-    if (f && f.t <= c.dep && f.k + 1 < k) [k, prev, from] = [f.k + 1, undefined, f.nb];
+    if (f && f.t <= c.dep && f.k < k) [k, prev, from] = [f.k, undefined, f.nb]; // 同月台換車不算多轉一次
     if (k === Infinity) continue;
     rode.set(c, prev);
     if (from) boardFrom.set(c, from);
@@ -184,7 +184,7 @@ function earliest(TT, from, to, day, t0, transfer) {
     else if (v.freq) { conns.unshift(v); n = `${v.a}|${v.key}`; }
     else for (; v; v = rode.get(v)) { conns.unshift(v); n = boardFrom.get(v) ?? `${v.a}|${v.key}`; } // 沿同一班車往回找到上車站
   }
-  return { dep: conns[0].dep, arr: best.get(end), conns };
+  return { dep: conns[0].dep, arr: best.get(end), conns, k: legsAt.get(end) };
 }
 
 // 依搭乘段數分輪（RAPTOR 的做法）：第 k 輪＝最多搭 k 段車；回傳每個 k 比少搭一段更早到的行程
@@ -193,9 +193,9 @@ function byRides(TT, from, to, day, t0, transfer, maxK, limit) {
   const sid = (c) => TT.stations[c].id;
   const goal = nodesOf[sid(to)] || [], start = nodesOf[sid(from)] || [];
   const vias = [new Map()], rodes = [null], boards = [null], out = [];
-  let prev = new Map(start.map((n) => [n, t0])), fresh = start, prevFast = new Map(), bound = limit + 1;
+  let prev = new Map(start.map((n) => [n, t0])), fresh = start, bound = limit + 1;
   const viaOf = (r, n) => { for (; r >= 1; r--) if (vias[r].has(n)) return [r, vias[r].get(n)]; return [0, null]; };
-  for (let k = 1; k <= maxK && (fresh.length || prevFast.size); k++) {
+  for (let k = 1; k <= maxK && fresh.length; k++) {
     const best = new Map(prev), via = new Map(), rode = new Map(), onTrain = new Map(), boarded = new Map(), fast = new Map();
     const reach = (n, t, v) => { best.set(n, t); via.set(n, v); };
     const walk = (code, nb, t) => {
@@ -219,7 +219,7 @@ function byRides(TT, from, to, day, t0, transfer, maxK, limit) {
     }
     // 只從上一輪新到的月台上車（更早到的月台，上一輪就搭過了）；從其中最早的時間開始掃
     const fromSet = new Set(fresh);
-    const t1 = Math.min(...fresh.map((n) => prev.get(n)), ...[...prevFast.values()].map((f) => f.t));
+    const t1 = Math.min(...fresh.map((n) => prev.get(n)));
     for (let x = firstAt(list, t1); x < list.length; x++) {
       const c = list[x], { na, nb } = c;
       if (c.dep >= bound) break;
@@ -228,9 +228,9 @@ function byRides(TT, from, to, day, t0, transfer, maxK, limit) {
         let ok = fromSet.has(na) && prev.get(na) <= c.dep;
         if (ok) { const v = viaOf(k - 1, na)[1]; ok = !(v?.term && v.arr === c.dep); } // 區間車到終點就不再往前開
         if (!ok) {
-          const f = prevFast.size ? prevFast.get(c.fk) : undefined;
+          const f = fast.size ? fast.get(c.fk) : undefined;
           if (!(f && f.t <= c.dep)) continue;
-          from = f.nb; // 上一輪下車後同月台直接換
+          from = f.nb; // 這一輪下車後同月台直接換，不算多轉一次
         }
       }
       rode.set(c, p);
@@ -252,14 +252,17 @@ function byRides(TT, from, to, day, t0, transfer, maxK, limit) {
         r = rr;
         if (v.walk) { n = v.walk; continue; }
         if (v.freq) conns.unshift(v), (n = `${v.a}|${v.key}`);
-        else for (let c = v; c; c = rodes[r].get(c)) conns.unshift(c), (n = boards[r].get(c) ?? `${c.a}|${c.key}`);
+        else {
+          let bd;
+          for (let c = v; c; c = rodes[r].get(c)) conns.unshift(c), (bd = boards[r].get(c)), (n = bd ?? `${c.a}|${c.key}`);
+          if (bd) continue; // 同月台換車：下車那段也在這一輪
+        }
         r--;
       }
       out.push({ k, dep: conns[0].dep, arr: bound, conns });
     }
     fresh = [...via.keys()];
     prev = best;
-    prevFast = fast;
   }
   return out;
 }
@@ -269,8 +272,8 @@ function byRides(TT, from, to, day, t0, transfer, maxK, limit) {
 function balanced(TT, from, to, day, t0, transfer, penalty) {
   const fast = earliest(TT, from, to, day, t0, transfer);
   if (!fast) return null;
-  const k = legs(TT, fast.conns).length;
-  let pick = { ...fast, k };
+  const { k } = fast; // 搭幾段車（同月台換車不算）
+  let pick = fast;
   if (k > 1) for (const j of byRides(TT, from, to, day, t0, transfer, k - 1, fast.arr + penalty * (k - 1)))
     if (j.arr + penalty * j.k < pick.arr + penalty * pick.k) pick = j;
   return pick;

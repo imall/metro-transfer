@@ -154,11 +154,11 @@ footer p { margin: 0; }
 </div>
 
 <!-- ?v=：資料或程式更新時改號碼，避開 Cloudflare 快取 -->
-<script src="data/timetables.js?v=13" charset="utf-8"></script>
-<script src="data/freq.js?v=13" charset="utf-8"></script>
-<script src="data/transfer.js?v=13" charset="utf-8"></script>
+<script src="data/timetables.js?v=14" charset="utf-8"></script>
+<script src="data/freq.js?v=14" charset="utf-8"></script>
+<script src="data/transfer.js?v=14" charset="utf-8"></script>
 <script type="module">
-import { plan, serviceTime, hhmm, withFreq, withSamePlatform } from './router.js?v=13';
+import { plan, serviceTime, hhmm, withFreq, withSamePlatform } from './router.js?v=14';
 
 const TT = withSamePlatform(withFreq(window.TT, window.FREQ), window.SAME_PLATFORM);
 // 官方各站轉乘步行時間（data/transfer.js），沒資料的轉乘站用 3 分
