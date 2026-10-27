@@ -142,6 +142,90 @@ function earliest(TT, from, to, day, t0, transfer) {
   return { dep: conns[0].dep, arr: best.get(end), conns };
 }
 
+// 依搭乘段數分輪（RAPTOR 的做法）：第 k 輪＝最多搭 k 段車；回傳每個 k 比少搭一段更早到的行程
+function byRides(TT, from, to, day, t0, transfer, maxK, limit) {
+  const { list, nodesOf, freqAt } = connections(TT, day);
+  const sid = (c) => TT.stations[c].id;
+  const goal = nodesOf[sid(to)] || [], start = nodesOf[sid(from)] || [];
+  const vias = [new Map()], rodes = [null], out = [];
+  let prev = new Map(start.map((n) => [n, t0])), fresh = start, bound = limit + 1;
+  const viaOf = (r, n) => { for (; r >= 1; r--) if (vias[r].has(n)) return [r, vias[r].get(n)]; return [0, null]; };
+  for (let k = 1; k <= maxK && fresh.length; k++) {
+    const best = new Map(prev), via = new Map(), rode = new Map(), onTrain = new Map();
+    const reach = (n, t, v) => { best.set(n, t); via.set(n, v); };
+    const walk = (code, nb, t) => {
+      const w = t + walkAt(transfer, sid(code));
+      for (const n of nodesOf[sid(code)]) if (n !== nb && w < (best.get(n) ?? Infinity)) reach(n, w, { walk: nb });
+    };
+    for (const n of fresh) { // 班距估算路線：從上一輪新到的月台上車
+      if (!freqAt[n]) continue;
+      const [f, i] = freqAt[n];
+      for (const [dir, step] of [['up', 1], ['down', -1]]) {
+        const b = board(f, i, dir, day, prev.get(n));
+        if (!b) continue;
+        for (let j = i + step; j >= 0 && j < f.seq.length; j += step) {
+          const code = f.seq[j], nb = `${code}|${f.key}`, arr = b.dep + Math.abs(f.off[j] - f.off[i]);
+          if (arr >= (best.get(nb) ?? Infinity)) continue;
+          reach(nb, arr, { freq: true, a: f.seq[i], b: code, key: f.key, dir, dep: b.dep, arr, h: b.h, stops: Math.abs(j - i),
+            end: f.seq[step > 0 ? f.seq.length - 1 : 0] });
+          walk(code, nb, arr);
+        }
+      }
+    }
+    // 只從上一輪新到的月台上車（更早到的月台，上一輪就搭過了）；從其中最早的時間開始掃
+    const fromSet = new Set(fresh);
+    let lo = 0, hi = list.length;
+    const t1 = Math.min(...fresh.map((n) => prev.get(n)));
+    while (lo < hi) { const m = (lo + hi) >> 1; if (list[m].dep < t1) lo = m + 1; else hi = m; }
+    for (let x = lo; x < list.length; x++) {
+      const c = list[x];
+      if (c.dep >= bound) break;
+      const na = `${c.a}|${c.key}`, nb = `${c.b}|${c.key}`;
+      let p = onTrain.get(c) ?? null; // 這一輪已在這班車上
+      if (!p) {
+        if (!fromSet.has(na) || !(prev.get(na) <= c.dep)) continue;
+        const v = viaOf(k - 1, na)[1];
+        if (v?.term && v.arr === c.dep) continue; // 區間車到終點就不再往前開
+      }
+      rode.set(c, p);
+      if (c.next) onTrain.set(c.next, c);
+      if (c.arr < (best.get(nb) ?? Infinity)) { reach(nb, c.arr, c); walk(c.b, nb, c.arr); }
+    }
+    vias.push(via); rodes.push(rode);
+    let end = null;
+    for (const g of goal) if (via.has(g) && best.get(g) < bound && (!end || best.get(g) < best.get(end))) end = g;
+    if (end) {
+      bound = best.get(end);
+      const conns = [];
+      for (let r = k, n = end; ; ) {
+        const [rr, v] = viaOf(r, n);
+        if (!v) break;
+        r = rr;
+        if (v.walk) { n = v.walk; continue; }
+        if (v.freq) conns.unshift(v), (n = `${v.a}|${v.key}`);
+        else for (let c = v; c; c = rodes[r].get(c)) conns.unshift(c), (n = `${c.a}|${c.key}`);
+        r--;
+      }
+      out.push({ k, dep: conns[0].dep, arr: bound, conns });
+    }
+    fresh = [...via.keys()];
+    prev = best;
+  }
+  return out;
+}
+
+// 最快與少轉乘取捨：每多搭一段車要早到 penalty 分以上才選它。
+// 先算最快的（搭 k 段、arr 到）：少搭的只要不晚於 arr + penalty×(k−1) 都可能被選，多搭的不可能更快
+function balanced(TT, from, to, day, t0, transfer, penalty) {
+  const fast = earliest(TT, from, to, day, t0, transfer);
+  if (!fast) return null;
+  const k = legs(TT, fast.conns).length;
+  let pick = { ...fast, k };
+  if (k > 1) for (const j of byRides(TT, from, to, day, t0, transfer, k - 1, fast.arr + penalty * (k - 1)))
+    if (j.arr + penalty * j.k < pick.arr + penalty * pick.k) pick = j;
+  return pick;
+}
+
 // 把連續同一班車的站間段合併成一段乘車
 function legs(TT, conns) {
   const out = [];
@@ -181,11 +265,12 @@ function waitLonger(TT, early, late) {
 }
 
 // 最近 n 種抵達時間的行程；較早出發但和較晚那班同時到的也列出，same＝較晚那班的出發時間
-export function plan(TT, from, to, day, now, { transfer = 3, n = 3 } = {}) {
+// penalty：每多轉一次車要快幾分才推薦（null＝只看最快）
+export function plan(TT, from, to, day, now, { transfer = 3, n = 3, penalty = 5 } = {}) {
   if (TT.stations[from].id === TT.stations[to].id) return [];
   const res = [];
   for (let t = now, guard = 0, arrs = 0; guard < 200; guard++) {
-    const j = earliest(TT, from, to, day, t, transfer);
+    const j = penalty == null ? earliest(TT, from, to, day, t, transfer) : balanced(TT, from, to, day, t, transfer, penalty);
     if (!j) break;
     if (res.at(-1)?.arr !== j.arr && arrs++ === n) break;
     res.push(j);

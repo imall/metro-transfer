@@ -88,5 +88,12 @@ console.log(show(r));
 assert.ok(r.every((j) => j.legs.at(-1).walk === 11 && j.legs.at(-1).dep >= j.legs.at(-2).arr + 11 + 3), '板橋走 11 分');
 assert.equal(official(TT.stations.Y07.id), 3);
 
+// 每多轉一次要快 5 分以上才推薦：台北車站 → 中和，最快是轉 3 次 08:30 到，但只比轉 1 次（新埔）早 5 分
+r = plan(TT, 'R10', 'Y12', 'wd', 8 * 60, { transfer: official, penalty: null });
+assert.equal(r[0].legs.length, 4);
+r = plan(TT, 'R10', 'Y12', 'wd', 8 * 60, { transfer: official });
+console.log(show(r));
+assert.deepEqual(r[0].legs.map((l) => [l.from, l.to]), [['BL12', 'BL08'], ['Y17', 'Y12']]);
+
 assert.deepEqual(serviceTime(new Date(2026, 9, 26, 0, 30)), { day: 'su', min: 24 * 60 + 30 }); // 週一凌晨 → 週日營運日
 console.log('OK');
