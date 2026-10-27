@@ -49,6 +49,10 @@ function connections(TT, day) {
         for (let k = 0; k < arr.length; k += 2) list.push({ e: i, a: e[0], b: e[1], key: e[2], dep: arr[k], arr: arr[k + 1], term });
     });
     list.sort((x, y) => x.dep - y.dep);
+    // 同一班車的下一段：從 B 站、同線同方向、在到 B 的那一分鐘開出（區間車到終點就沒有下一段）
+    const dir = (c) => TT.edges[c.e][3];
+    const at = new Map(list.map((c) => [`${c.a}|${c.key}|${dir(c)}|${c.dep}`, c]));
+    for (const c of list) if (!c.term) c.next = at.get(`${c.b}|${c.key}|${dir(c)}|${c.arr}`);
     const keysAt = {};
     for (const e of TT.edges) for (const c of [e[0], e[1]]) (keysAt[c] ||= new Set()).add(e[2]);
     const freqAt = {};
@@ -69,24 +73,28 @@ const walkAt = (transfer, id) => (typeof transfer === 'function' ? transfer(id) 
 function earliest(TT, from, to, day, t0, transfer) {
   const { list, nodesOf, freqAt } = connections(TT, day);
   const sid = (c) => TT.stations[c].id;
-  const best = new Map(), via = new Map();
+  // 每個月台節點記最早抵達時間，同時間再比搭了幾段車（少轉乘優先）
+  const best = new Map(), legsAt = new Map(), via = new Map();
+  const onTrain = new Map(), rode = new Map(); // 已搭上的班車：下一段 → { prev 這一段, k 段數 }；每段 → 同一班車的前一段
   const goal = new Set(nodesOf[sid(to)] || []);
   let end = null;
-  const reach = (n, t, v) => {
+  const better = (n, t, k) => t < (best.get(n) ?? Infinity) || (t === best.get(n) && k < legsAt.get(n));
+  const reach = (n, t, v, k) => {
     best.set(n, t);
+    legsAt.set(n, k);
     via.set(n, v);
-    if (goal.has(n) && (!end || t < best.get(end))) end = n;
+    if (goal.has(n) && (!end || t < best.get(end) || (t === best.get(end) && k < legsAt.get(end)))) end = n;
   };
-  const walk = (code, nb, t) => {
+  const walk = (code, nb, t, k) => {
     const w = t + walkAt(transfer, sid(code));
     for (const n of nodesOf[sid(code)])
-      if (n !== nb && w < (best.get(n) ?? Infinity)) {
-        reach(n, w, { walk: nb });
-        ride(n, w);
+      if (n !== nb && better(n, w, k)) {
+        reach(n, w, { walk: nb }, k);
+        ride(n, w, k);
       }
   };
   // 班距估算路線不在 list 裡：一到月台就直接推算同線各站的抵達時間
-  const ride = (n, t) => {
+  const ride = (n, t, k) => {
     if (!freqAt[n]) return;
     const [f, i] = freqAt[n];
     for (const [dir, step] of [['up', 1], ['down', -1]]) {
@@ -94,32 +102,42 @@ function earliest(TT, from, to, day, t0, transfer) {
       if (!b) continue;
       for (let j = i + step; j >= 0 && j < f.seq.length; j += step) {
         const code = f.seq[j], nb = `${code}|${f.key}`, arr = b.dep + Math.abs(f.off[j] - f.off[i]);
-        if (arr >= (best.get(nb) ?? Infinity)) continue;
+        if (!better(nb, arr, k + 1)) continue;
         reach(nb, arr, { freq: true, a: f.seq[i], b: code, key: f.key, dir, dep: b.dep, arr, h: b.h, stops: Math.abs(j - i),
-          end: f.seq[step > 0 ? f.seq.length - 1 : 0] });
-        walk(code, nb, arr);
+          end: f.seq[step > 0 ? f.seq.length - 1 : 0] }, k + 1);
+        walk(code, nb, arr, k + 1);
       }
     }
   };
   const start = nodesOf[sid(from)] || [];
-  for (const n of start) best.set(n, t0);
-  for (const n of start) ride(n, t0);
+  for (const n of start) best.set(n, t0), legsAt.set(n, 0);
+  for (const n of start) ride(n, t0, 0);
   for (const c of list) {
     if (c.dep < t0) continue;
     if (end && c.dep >= best.get(end)) break;
     const na = `${c.a}|${c.key}`, nb = `${c.b}|${c.key}`;
-    if (!(best.get(na) <= c.dep) || c.arr >= (best.get(nb) ?? Infinity)) continue;
-    const prev = via.get(na);
-    if (prev?.term && prev.arr === c.dep) continue; // 區間車到終點就不再往前開
-    reach(nb, c.arr, c);
-    walk(c.b, nb, c.arr);
+    // 已經在這班車上就繼續坐（即使別條路比這班車早到 A 站）；在 A 站上車段數更少才改成從 A 上車
+    const stay = onTrain.get(c);
+    let k = stay ? stay.k : Infinity, prev = stay?.prev;
+    const v = via.get(na);
+    if (best.get(na) <= c.dep && !(v?.term && v.arr === c.dep) && legsAt.get(na) + 1 < k) { // 區間車到終點就不再往前開
+      k = legsAt.get(na) + 1;
+      prev = undefined;
+    }
+    if (k === Infinity) continue;
+    rode.set(c, prev);
+    if (c.next) onTrain.set(c.next, { prev: c, k });
+    if (!better(nb, c.arr, k)) continue;
+    reach(nb, c.arr, c, k);
+    walk(c.b, nb, c.arr, k);
   }
   if (!end) return null;
   const conns = [];
   for (let n = end; via.has(n); ) {
-    const v = via.get(n);
+    let v = via.get(n);
     if (v.walk) n = v.walk;
-    else { conns.unshift(v); n = `${v.a}|${v.key}`; }
+    else if (v.freq) { conns.unshift(v); n = `${v.a}|${v.key}`; }
+    else for (; v; v = rode.get(v)) { conns.unshift(v); n = `${v.a}|${v.key}`; } // 沿同一班車往回找到上車站
   }
   return { dep: conns[0].dep, arr: best.get(end), conns };
 }

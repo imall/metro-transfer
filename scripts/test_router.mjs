@@ -27,6 +27,11 @@ assert.equal(new Set(r.map((j) => j.arr)).size, 3);
 assert.ok(r.every((j, i) => !j.same || r[i + 1]?.arr === j.arr), '同時到的較早班次後面緊接較晚那班');
 assert.deepEqual(early.legs.map((l) => [l.from, l.to, hhmm(l.dep)]), [['R04', 'R07', '18:11'], ['O06', 'O18', '18:21']], '在東門多等，不繞大橋頭');
 
+// 同一班橘線不繞路：在東門接到的車，不會因為估算的環狀線早一分鐘到頭前庄，就寫成繞西門、新埔、頭前庄
+r = plan(TT, 'R04', 'O18', 'wd', 18 * 60 + 1, { transfer: 1, n: 6 });
+console.log(show(r));
+assert.ok(r.every((j) => j.legs.map((l) => `${l.from}→${l.to}`).join() === 'R04→R07,O06→O18'));
+
 // 東門 → 蘆洲：要搭往蘆洲的車
 r = plan(TT, 'O06', 'O54', 'wd', 17 * 60);
 console.log(show(r));
