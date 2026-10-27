@@ -1,7 +1,7 @@
 // 離線用：先回快取（地下收不到訊號也能開），背景再抓新版存起來，下次開啟生效。
 // 改 index.html 裡的 ?v= 時，CACHE 也一起改，舊快取會在啟用時清掉。
-const CACHE = 'metro-v10';
-const ASSETS = ['./', 'router.js?v=10', 'data/timetables.js?v=10', 'data/freq.js?v=10', 'data/transfer.js?v=10', 'favicon.svg?v=1', 'manifest.webmanifest', 'icon-192.png'];
+const CACHE = 'metro-v11';
+const ASSETS = ['./', 'router.js?v=11', 'data/timetables.js?v=11', 'data/freq.js?v=11', 'data/transfer.js?v=11', 'favicon.svg?v=1', 'manifest.webmanifest', 'icon-192.png'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(ASSETS)).then(() => self.skipWaiting()));
