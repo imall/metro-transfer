@@ -2,21 +2,38 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
-import { plan, hhmm, serviceTime, withFreq } from '../router.js';
+import { plan, hhmm, serviceTime, withFreq, withSamePlatform } from '../router.js';
 
 const ctx = { window: {} };
 for (const f of ['timetables.js', 'freq.js', 'transfer.js']) vm.runInNewContext(readFileSync(new URL(`../data/${f}`, import.meta.url), 'utf8'), ctx);
-const TT = withFreq(ctx.window.TT, ctx.window.FREQ);
+const TT = withSamePlatform(withFreq(ctx.window.TT, ctx.window.FREQ), ctx.window.SAME_PLATFORM);
 const show = (r) => r.map((j) => `${hhmm(j.dep)}→${hhmm(j.arr)} ` + j.legs.map((l) => `[${l.from}→${l.to} ${l.toward} ${hhmm(l.dep)}-${hhmm(l.arr)}]`).join(' ')).join('\n');
 
-// 信義安和 → 新莊：紅線往淡水方向，東門轉橘線，搭往迴龍的車
+// 信義安和 → 新莊：紅線往淡水方向，東門同月台轉橘線，搭往迴龍的車
 let r = plan(TT, 'R04', 'O18', 'wd', 8 * 60).filter((j) => !j.same);
 console.log(show(r));
 assert.equal(r.length, 3);
 assert.ok(r[0].dep >= 8 * 60 && r[0].dep < r[1].dep && r[1].arr < r[2].arr);
 assert.deepEqual(r[0].legs.map((l) => [l.from, l.key, l.to]), [['R04', 'R', 'R07'], ['O06', 'O', 'O18']]);
 assert.match(r[0].legs[1].toward, /迴龍/);
-assert.ok(r[0].legs[1].dep >= r[0].legs[0].arr + 3, '轉乘至少 3 分');
+assert.ok(r[0].legs[1].cross && r[0].legs[1].walk === 1, '東門往淡水 ↔ 往迴龍同月台，走 1 分');
+
+// 同月台不管官方或自填分鐘都算 1 分：18:14、18:20 出發剛好接上 18:21、18:27 往迴龍
+r = plan(TT, 'R04', 'O18', 'wd', 18 * 60, { transfer: 2, n: 6 });
+console.log(show(r));
+for (const [dep, arr] of [[18 * 60 + 14, 18 * 60 + 47], [18 * 60 + 20, 18 * 60 + 55]]) assert.equal(r.find((j) => j.dep === dep && !j.same)?.arr, arr);
+
+// 古亭、中正紀念堂也是同向同月台
+for (const [name, k1, d1, k2, d2] of ctx.window.SAME_PLATFORM)
+  assert.ok(TT.cross.get(`${Object.values(TT.stations).find((s) => s.name === name).id}|${k1}|${d1}`).includes(`${k2}|${d2}`), name);
+r = plan(TT, 'G11', 'O04', 'wd', 8 * 60, { transfer: 5, penalty: null }); // 小南門 → 頂溪：古亭往新店 ↔ 往南勢角
+console.log(show(r));
+assert.ok(r.every((j) => j.legs.length === 2 && j.legs[1].from === 'O05' && j.legs[1].cross && j.legs[1].walk === 1));
+
+// 不同月台照樣要走：從迴龍來（往南勢角）轉往淡水，東門要算轉乘步行
+r = plan(TT, 'O18', 'R10', 'wd', 8 * 60, { transfer: 3, penalty: null });
+const dm = r.flatMap((j) => j.legs).find((l) => l.from === 'R07');
+assert.ok(!dm || (!dm.cross && dm.walk === 3));
 
 // 較早出發但同時到的也列出：轉乘 1 分時 18:11 和 18:14 都接 18:21 往迴龍
 r = plan(TT, 'R04', 'O18', 'wd', 18 * 60 + 1, { transfer: 1 });
@@ -88,12 +105,12 @@ console.log(show(r));
 assert.ok(r.every((j) => j.legs.at(-1).walk === 11 && j.legs.at(-1).dep >= j.legs.at(-2).arr + 11 + 3), '板橋走 11 分');
 assert.equal(official(TT.stations.Y07.id), 3);
 
-// 每多轉一次要快 5 分以上才推薦：台北車站 → 中和，最快是轉 3 次 08:30 到，但只比轉 1 次（新埔）早 5 分
-r = plan(TT, 'R10', 'Y12', 'wd', 8 * 60, { transfer: official, penalty: null });
-assert.equal(r[0].legs.length, 4);
-r = plan(TT, 'R10', 'Y12', 'wd', 8 * 60, { transfer: official });
+// 每多轉一次要快 5 分以上才推薦：小南門 → 橋和，最快是古亭、景安轉 2 次 11:10 到，只比大坪林轉 1 次早 3 分
+r = plan(TT, 'G11', 'Y13', 'su', 10 * 60 + 40, { transfer: official, penalty: null });
+assert.deepEqual([r[0].arr, r[0].legs.length], [11 * 60 + 10, 3]);
+r = plan(TT, 'G11', 'Y13', 'su', 10 * 60 + 40, { transfer: official });
 console.log(show(r));
-assert.deepEqual(r[0].legs.map((l) => [l.from, l.to]), [['BL12', 'BL08'], ['Y17', 'Y12']]);
+assert.deepEqual(r[0].legs.map((l) => [l.from, l.to]), [['G11', 'G04'], ['Y07', 'Y13']]);
 
 assert.deepEqual(serviceTime(new Date(2026, 9, 26, 0, 30)), { day: 'su', min: 24 * 60 + 30 }); // 週一凌晨 → 週日營運日
 console.log('OK');

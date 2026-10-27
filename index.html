@@ -154,13 +154,13 @@ footer p { margin: 0; }
 </div>
 
 <!-- ?v=：資料或程式更新時改號碼，避開 Cloudflare 快取 -->
-<script src="data/timetables.js?v=12" charset="utf-8"></script>
-<script src="data/freq.js?v=12" charset="utf-8"></script>
-<script src="data/transfer.js?v=12" charset="utf-8"></script>
+<script src="data/timetables.js?v=13" charset="utf-8"></script>
+<script src="data/freq.js?v=13" charset="utf-8"></script>
+<script src="data/transfer.js?v=13" charset="utf-8"></script>
 <script type="module">
-import { plan, serviceTime, hhmm, withFreq } from './router.js?v=12';
+import { plan, serviceTime, hhmm, withFreq, withSamePlatform } from './router.js?v=13';
 
-const TT = withFreq(window.TT, window.FREQ);
+const TT = withSamePlatform(withFreq(window.TT, window.FREQ), window.SAME_PLATFORM);
 // 官方各站轉乘步行時間（data/transfer.js），沒資料的轉乘站用 3 分
 const WALK = {};
 for (const s of Object.values(TT.stations)) if (s.name in window.TRANSFER) WALK[s.id] = window.TRANSFER[s.name];
@@ -268,7 +268,7 @@ function render() {
       const next = j.legs[k + 1];
       const gap = next ? next.dep - l.arr : 0, about = next?.est ? '約' : '';
       const xfer = !next ? '' : next.walk == null ? `<li class="xfer">同站換車・等${about} ${gap} 分</li>`
-        : `<li class="xfer">轉乘・步行 ${next.walk} 分・等${about} ${gap - next.walk} 分</li>`;
+        : `<li class="xfer">${next.cross ? '同月台轉乘' : '轉乘'}・步行 ${next.walk} 分・等${about} ${gap - next.walk} 分</li>`;
       const t = (m) => `<span class="t">${l.est ? '約' : ''}${hhmm(m)}</span>`; // 班距估算
       return `<li class="leg" style="--c:var(--${l.key})"><span class="bar"></span><div>
         <p>${t(l.dep)}${chip(l.from)}${name(l.from)} 上車 <span class="toward${l.need || l.term ? ' need' : ''}">${l.toward}</span></p>

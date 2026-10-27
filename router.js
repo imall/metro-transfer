@@ -31,6 +31,30 @@ export function withFreq(TT, lines = []) {
   return TT;
 }
 
+// 同月台轉乘（對面就是，不用走）：TT.cross「車站 id|線|方向」→ 可直接換的「線|方向」
+export function withSamePlatform(TT, list = []) {
+  const idOf = Object.fromEntries(Object.values(TT.stations).map((s) => [s.name, s.id]));
+  TT.cross = new Map();
+  const add = (id, a, b) => TT.cross.set(`${id}|${a}`, [...(TT.cross.get(`${id}|${a}`) || []), b]);
+  for (const [name, k1, d1, k2, d2] of list) {
+    add(idOf[name], `${k1}|${d1}`, `${k2}|${d2}`);
+    add(idOf[name], `${k2}|${d2}`, `${k1}|${d1}`);
+  }
+  return TT;
+}
+const dirOf = (TT, c) => TT.edges[c.e][3];
+// 同月台轉乘也要 1 分（走到對面、等門開）；自填的分鐘更少就用自填的
+const crossWalk = (transfer, id) => Math.min(1, walkAt(transfer, id));
+// 在 B 站下車後，同月台可直接換的月台節點與方向：[[節點, 方向], …]
+function crossAt(TT, nodesOf, c) {
+  const id = TT.stations[c.b].id, to = TT.cross?.get(`${id}|${c.key}|${dirOf(TT, c)}`);
+  if (!to) return [];
+  return to.map((kd) => {
+    const [k, d] = kd.split('|');
+    return [nodesOf[id].find((n) => n.endsWith(`|${k}`)), d];
+  }).filter(([n]) => n);
+}
+
 // t 到月台、往 dir 方向：首班前等首班，之後等班距一半，末班過了就沒車
 function board(f, i, dir, day, t) {
   const lastAt = f.last + (dir === 'up' ? f.off[i] : f.off.at(-1) - f.off[i]);
@@ -61,9 +85,22 @@ function connections(TT, day) {
     const nodesOf = {};
     for (const [code, s] of Object.entries(TT.stations))
       for (const k of keysAt[code] || []) (nodesOf[s.id] ||= []).push(`${code}|${k}`);
+    for (const c of list) { // 掃描時常用的節點字串先算好
+      c.na = `${c.a}|${c.key}`;
+      c.nb = `${c.b}|${c.key}`;
+      c.fk = `${c.na}|${dir(c)}`;
+      c.cross = crossAt(TT, nodesOf, c);
+    }
     cache.set(day, { list, nodesOf, freqAt });
   }
   return cache.get(day);
+}
+
+// list 依出發時間排序：第一個 dep ≥ t 的位置
+function firstAt(list, t) {
+  let lo = 0, hi = list.length;
+  while (lo < hi) { const m = (lo + hi) >> 1; if (list[m].dep < t) lo = m + 1; else hi = m; }
+  return lo;
 }
 
 // 轉乘步行分鐘：transfer 是固定分鐘，或「車站 id → 分鐘」的函式（各站不同）
@@ -76,6 +113,7 @@ function earliest(TT, from, to, day, t0, transfer) {
   // 每個月台節點記最早抵達時間，同時間再比搭了幾段車（少轉乘優先）
   const best = new Map(), legsAt = new Map(), via = new Map();
   const onTrain = new Map(), rode = new Map(); // 已搭上的班車：下一段 → { prev 這一段, k 段數 }；每段 → 同一班車的前一段
+  const fast = new Map(), boardFrom = new Map(); // 同月台轉乘：「節點|方向」→ { t, k, nb 下車節點 }；上車段 → 下車節點
   const goal = new Set(nodesOf[sid(to)] || []);
   let end = null;
   const better = (n, t, k) => t < (best.get(n) ?? Infinity) || (t === best.get(n) && k < legsAt.get(n));
@@ -112,21 +150,28 @@ function earliest(TT, from, to, day, t0, transfer) {
   const start = nodesOf[sid(from)] || [];
   for (const n of start) best.set(n, t0), legsAt.set(n, 0);
   for (const n of start) ride(n, t0, 0);
-  for (const c of list) {
-    if (c.dep < t0) continue;
+  for (let x = firstAt(list, t0); x < list.length; x++) {
+    const c = list[x], { na, nb } = c;
     if (end && c.dep >= best.get(end)) break;
-    const na = `${c.a}|${c.key}`, nb = `${c.b}|${c.key}`;
     // 已經在這班車上就繼續坐（即使別條路比這班車早到 A 站）；在 A 站上車段數更少才改成從 A 上車
     const stay = onTrain.get(c);
     let k = stay ? stay.k : Infinity, prev = stay?.prev;
     const v = via.get(na);
+    let from;
     if (best.get(na) <= c.dep && !(v?.term && v.arr === c.dep) && legsAt.get(na) + 1 < k) { // 區間車到終點就不再往前開
       k = legsAt.get(na) + 1;
       prev = undefined;
     }
+    const f = fast.size ? fast.get(c.fk) : undefined;
+    if (f && f.t <= c.dep && f.k + 1 < k) [k, prev, from] = [f.k + 1, undefined, f.nb];
     if (k === Infinity) continue;
     rode.set(c, prev);
+    if (from) boardFrom.set(c, from);
     if (c.next) onTrain.set(c.next, { prev: c, k });
+    for (const [n, d] of c.cross) {
+      const t = c.arr + crossWalk(transfer, sid(c.b)), g = fast.get(`${n}|${d}`);
+      if (!g || t < g.t || (t === g.t && k < g.k)) fast.set(`${n}|${d}`, { t, k, nb });
+    }
     if (!better(nb, c.arr, k)) continue;
     reach(nb, c.arr, c, k);
     walk(c.b, nb, c.arr, k);
@@ -137,7 +182,7 @@ function earliest(TT, from, to, day, t0, transfer) {
     let v = via.get(n);
     if (v.walk) n = v.walk;
     else if (v.freq) { conns.unshift(v); n = `${v.a}|${v.key}`; }
-    else for (; v; v = rode.get(v)) { conns.unshift(v); n = `${v.a}|${v.key}`; } // 沿同一班車往回找到上車站
+    else for (; v; v = rode.get(v)) { conns.unshift(v); n = boardFrom.get(v) ?? `${v.a}|${v.key}`; } // 沿同一班車往回找到上車站
   }
   return { dep: conns[0].dep, arr: best.get(end), conns };
 }
@@ -147,11 +192,11 @@ function byRides(TT, from, to, day, t0, transfer, maxK, limit) {
   const { list, nodesOf, freqAt } = connections(TT, day);
   const sid = (c) => TT.stations[c].id;
   const goal = nodesOf[sid(to)] || [], start = nodesOf[sid(from)] || [];
-  const vias = [new Map()], rodes = [null], out = [];
-  let prev = new Map(start.map((n) => [n, t0])), fresh = start, bound = limit + 1;
+  const vias = [new Map()], rodes = [null], boards = [null], out = [];
+  let prev = new Map(start.map((n) => [n, t0])), fresh = start, prevFast = new Map(), bound = limit + 1;
   const viaOf = (r, n) => { for (; r >= 1; r--) if (vias[r].has(n)) return [r, vias[r].get(n)]; return [0, null]; };
-  for (let k = 1; k <= maxK && fresh.length; k++) {
-    const best = new Map(prev), via = new Map(), rode = new Map(), onTrain = new Map();
+  for (let k = 1; k <= maxK && (fresh.length || prevFast.size); k++) {
+    const best = new Map(prev), via = new Map(), rode = new Map(), onTrain = new Map(), boarded = new Map(), fast = new Map();
     const reach = (n, t, v) => { best.set(n, t); via.set(n, v); };
     const walk = (code, nb, t) => {
       const w = t + walkAt(transfer, sid(code));
@@ -174,24 +219,28 @@ function byRides(TT, from, to, day, t0, transfer, maxK, limit) {
     }
     // 只從上一輪新到的月台上車（更早到的月台，上一輪就搭過了）；從其中最早的時間開始掃
     const fromSet = new Set(fresh);
-    let lo = 0, hi = list.length;
-    const t1 = Math.min(...fresh.map((n) => prev.get(n)));
-    while (lo < hi) { const m = (lo + hi) >> 1; if (list[m].dep < t1) lo = m + 1; else hi = m; }
-    for (let x = lo; x < list.length; x++) {
-      const c = list[x];
+    const t1 = Math.min(...fresh.map((n) => prev.get(n)), ...[...prevFast.values()].map((f) => f.t));
+    for (let x = firstAt(list, t1); x < list.length; x++) {
+      const c = list[x], { na, nb } = c;
       if (c.dep >= bound) break;
-      const na = `${c.a}|${c.key}`, nb = `${c.b}|${c.key}`;
-      let p = onTrain.get(c) ?? null; // 這一輪已在這班車上
+      let p = onTrain.get(c) ?? null, from = null; // 這一輪已在這班車上
       if (!p) {
-        if (!fromSet.has(na) || !(prev.get(na) <= c.dep)) continue;
-        const v = viaOf(k - 1, na)[1];
-        if (v?.term && v.arr === c.dep) continue; // 區間車到終點就不再往前開
+        let ok = fromSet.has(na) && prev.get(na) <= c.dep;
+        if (ok) { const v = viaOf(k - 1, na)[1]; ok = !(v?.term && v.arr === c.dep); } // 區間車到終點就不再往前開
+        if (!ok) {
+          const f = prevFast.size ? prevFast.get(c.fk) : undefined;
+          if (!(f && f.t <= c.dep)) continue;
+          from = f.nb; // 上一輪下車後同月台直接換
+        }
       }
       rode.set(c, p);
+      if (from) boarded.set(c, from);
       if (c.next) onTrain.set(c.next, c);
+      const tc = c.arr + crossWalk(transfer, sid(c.b));
+      for (const [n, d] of c.cross) if (!(fast.get(`${n}|${d}`)?.t <= tc)) fast.set(`${n}|${d}`, { t: tc, nb });
       if (c.arr < (best.get(nb) ?? Infinity)) { reach(nb, c.arr, c); walk(c.b, nb, c.arr); }
     }
-    vias.push(via); rodes.push(rode);
+    vias.push(via); rodes.push(rode); boards.push(boarded);
     let end = null;
     for (const g of goal) if (via.has(g) && best.get(g) < bound && (!end || best.get(g) < best.get(end))) end = g;
     if (end) {
@@ -203,13 +252,14 @@ function byRides(TT, from, to, day, t0, transfer, maxK, limit) {
         r = rr;
         if (v.walk) { n = v.walk; continue; }
         if (v.freq) conns.unshift(v), (n = `${v.a}|${v.key}`);
-        else for (let c = v; c; c = rodes[r].get(c)) conns.unshift(c), (n = `${c.a}|${c.key}`);
+        else for (let c = v; c; c = rodes[r].get(c)) conns.unshift(c), (n = boards[r].get(c) ?? `${c.a}|${c.key}`);
         r--;
       }
       out.push({ k, dep: conns[0].dep, arr: bound, conns });
     }
     fresh = [...via.keys()];
     prev = best;
+    prevFast = fast;
   }
   return out;
 }
@@ -290,7 +340,10 @@ export function plan(TT, from, to, day, now, { transfer = 3, n = 3, penalty = 5 
     const ls = legs(TT, j.conns);
     ls.forEach((l, k) => { // 換月台（不同站碼或不同路線）才要走路
       const p = ls[k - 1];
-      if (p && (l.from !== p.to || l.key !== p.key)) l.walk = walkAt(transfer, TT.stations[l.from].id);
+      if (!p || (l.from === p.to && l.key === p.key)) return;
+      const id = TT.stations[l.from].id;
+      l.cross = !!TT.cross?.get(`${id}|${p.key}|${p.dir}`)?.includes(`${l.key}|${l.dir}`); // 同月台轉乘
+      l.walk = (l.cross ? crossWalk : walkAt)(transfer, id);
     });
     return { dep: j.dep, arr: j.arr, same: j.same ?? null, legs: ls };
   });
