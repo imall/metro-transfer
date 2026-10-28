@@ -34,6 +34,7 @@ assert.ok(r.every((j) => j.legs.length === 2 && j.legs[1].from === 'O05' && j.le
 r = plan(TT, 'O18', 'R10', 'wd', 8 * 60, { transfer: 3, penalty: null });
 const dm = r.flatMap((j) => j.legs).find((l) => l.from === 'R07');
 assert.ok(!dm || (!dm.cross && dm.walk === 3));
+assert.ok(r.every((j) => j.legs.every((l) => !l.chance)), '換月台不會有同分鐘提示');
 
 // 較早出發但同時到的也列出：轉乘 1 分時 18:11 和 18:14 都接 18:21 往迴龍
 r = plan(TT, 'R04', 'O18', 'wd', 18 * 60 + 1, { transfer: 1 });
@@ -116,6 +117,14 @@ assert.deepEqual(r[0].legs.map((l) => [l.from, l.to]), [['G11', 'G15'], ['O08', 
 r = plan(TT, 'G11', 'Y13', 'su', 10 * 60 + 40, { transfer: official });
 assert.deepEqual([r[0].arr, r[0].legs.map((l) => l.from).join()], [11 * 60 + 10, 'G11,O05,Y11']);
 assert.ok(r[0].legs[1].cross);
+
+// 同月台、對面同一分鐘也有車：新莊 08:07 → 東門 08:33，表定接 08:36，但對面 08:33 也有往象山的車，接得上 08:39 到
+r = plan(TT, 'O18', 'R04', 'wd', 7 * 60 + 55, { transfer: official, n: 5 });
+console.log(show(r));
+const ch = r.filter((j) => j.legs.some((l) => l.chance));
+assert.equal(ch.length, 1);
+assert.equal(ch[0].dep, 8 * 60 + 7);
+assert.deepEqual(ch[0].legs[1].chance, { dep: 8 * 60 + 33, arr: 8 * 60 + 39 });
 
 assert.deepEqual(serviceTime(new Date(2026, 9, 26, 0, 30)), { day: 'su', min: 24 * 60 + 30 }); // 週一凌晨 → 週日營運日
 console.log('OK');

@@ -317,6 +317,18 @@ function waitLonger(TT, early, late) {
   return null;
 }
 
+// 同月台轉乘時，對面在下車那一分鐘也有一班（表定只到分鐘，實際常接得上）：回傳那班車到 l.to 的時間
+function sameMinute(TT, day, p, l) {
+  const { list } = connections(TT, day);
+  for (let x = firstAt(list, p.arr); x < list.length && list[x].dep === p.arr; x++) {
+    let c = list[x];
+    if (c.na !== `${l.from}|${l.key}` || dirOf(TT, c) !== l.dir) continue;
+    while (c && c.b !== l.to) c = c.next;
+    return c ? c.arr : null;
+  }
+  return null;
+}
+
 // 最近 n 種抵達時間的行程；較早出發但和較晚那班同時到的也列出，same＝較晚那班的出發時間
 // penalty：每多轉一次車要快幾分才推薦（null＝只看最快）
 export function plan(TT, from, to, day, now, { transfer = 3, n = 3, penalty = 5 } = {}) {
@@ -347,6 +359,10 @@ export function plan(TT, from, to, day, now, { transfer = 3, n = 3, penalty = 5 
       const id = TT.stations[l.from].id;
       l.cross = !!TT.cross?.get(`${id}|${p.key}|${p.dir}`)?.includes(`${l.key}|${l.dir}`); // 同月台轉乘
       l.walk = (l.cross ? crossWalk : walkAt)(transfer, id);
+      if (l.cross && !l.est && !p.est && l.dep > p.arr) {
+        const arr = sameMinute(TT, day, p, l);
+        if (arr != null && arr < l.arr) l.chance = { dep: p.arr, arr };
+      }
     });
     return { dep: j.dep, arr: j.arr, same: j.same ?? null, legs: ls };
   });
