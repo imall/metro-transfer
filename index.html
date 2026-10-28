@@ -155,11 +155,11 @@ footer p { margin: 0; }
 </div>
 
 <!-- ?v=：資料或程式更新時改號碼，避開 Cloudflare 快取 -->
-<script src="data/timetables.js?v=15" charset="utf-8"></script>
-<script src="data/freq.js?v=15" charset="utf-8"></script>
-<script src="data/transfer.js?v=15" charset="utf-8"></script>
+<script src="data/timetables.js?v=16" charset="utf-8"></script>
+<script src="data/freq.js?v=16" charset="utf-8"></script>
+<script src="data/transfer.js?v=16" charset="utf-8"></script>
 <script type="module">
-import { plan, serviceTime, hhmm, withFreq, withSamePlatform } from './router.js?v=15';
+import { plan, serviceTime, hhmm, withFreq, withSamePlatform } from './router.js?v=16';
 
 const TT = withSamePlatform(withFreq(window.TT, window.FREQ), window.SAME_PLATFORM);
 // 官方各站轉乘步行時間（data/transfer.js），沒資料的轉乘站用 3 分
@@ -270,7 +270,7 @@ function render() {
       const gap = next ? next.dep - l.arr : 0, about = next?.est ? '約' : '';
       const xfer = !next ? '' : next.walk == null ? `<li class="xfer">同站換車・等${about} ${gap} 分</li>`
         : `<li class="xfer">${next.cross ? '同月台轉乘' : '轉乘'}・步行 ${next.walk} 分・等${about} ${gap - next.walk} 分</li>`
-          + (next.chance ? `<li class="xfer chance">對面 ${hhmm(next.chance.dep)} 也有一班（同一分鐘），接得上就 ${hhmm(next.chance.arr)} 到${name(next.to)}</li>` : '');
+          + (next.chance ? `<li class="xfer chance">對面 ${hhmm(next.chance.dep)} 也有一班，接得上就 ${hhmm(next.chance.arr)} 到${name(next.to)}</li>` : '');
       const t = (m) => `<span class="t">${l.est ? '約' : ''}${hhmm(m)}</span>`; // 班距估算
       return `<li class="leg" style="--c:var(--${l.key})"><span class="bar"></span><div>
         <p>${t(l.dep)}${chip(l.from)}${name(l.from)} 上車 <span class="toward${l.need || l.term ? ' need' : ''}">${l.toward}</span></p>
