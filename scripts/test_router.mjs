@@ -126,5 +126,10 @@ assert.equal(ch.length, 1);
 assert.equal(ch[0].dep, 8 * 60 + 7);
 assert.deepEqual(ch[0].legs[1].chance, { dep: 8 * 60 + 33, arr: 8 * 60 + 39 });
 
+// 轉乘等 0 分（剛好接上）附下一班：新莊 08:13 → 東門 08:38，接 08:39；沒接上就 08:42，08:48 到信義安和
+r = plan(TT, 'O18', 'R04', 'wd', 8 * 60 + 10, { transfer: official, n: 5 });
+assert.deepEqual(r.map((j) => j.legs[1]?.backup ?? null).filter(Boolean), [{ dep: 8 * 60 + 42, arr: 8 * 60 + 48 }, { dep: 9 * 60 + 4, arr: 9 * 60 + 10 }]);
+assert.ok(r.every((j) => !j.legs[1]?.backup || j.legs[1].dep - j.legs[0].arr === j.legs[1].walk), '只有等 0 分才附');
+
 assert.deepEqual(serviceTime(new Date(2026, 9, 26, 0, 30)), { day: 'su', min: 24 * 60 + 30 }); // 週一凌晨 → 週日營運日
 console.log('OK');

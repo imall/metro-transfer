@@ -329,6 +329,19 @@ function sameMinute(TT, day, p, l) {
   return null;
 }
 
+// l 這段的下一班（l.dep 之後、同月台同方向、會開到 l.to）：沒接上時的備案
+function nextTrain(TT, day, l) {
+  const { list } = connections(TT, day);
+  for (let x = firstAt(list, l.dep + 1); x < list.length && list[x].dep <= l.dep + 60; x++) {
+    let c = list[x];
+    if (c.na !== `${l.from}|${l.key}` || dirOf(TT, c) !== l.dir) continue;
+    const dep = c.dep;
+    while (c && c.b !== l.to) c = c.next;
+    if (c) return { dep, arr: c.arr };
+  }
+  return null;
+}
+
 // 最近 n 種抵達時間的行程；較早出發但和較晚那班同時到的也列出，same＝較晚那班的出發時間
 // penalty：每多轉一次車要快幾分才推薦（null＝只看最快）
 export function plan(TT, from, to, day, now, { transfer = 3, n = 3, penalty = 5 } = {}) {
@@ -363,6 +376,7 @@ export function plan(TT, from, to, day, now, { transfer = 3, n = 3, penalty = 5 
         const arr = sameMinute(TT, day, p, l);
         if (arr != null && arr < l.arr) l.chance = { dep: p.arr, arr };
       }
+      if (!l.est && !p.est && l.dep - p.arr === l.walk) l.backup = nextTrain(TT, day, l); // 等 0 分：剛好接上，附下一班
     });
     return { dep: j.dep, arr: j.arr, same: j.same ?? null, legs: ls };
   });
